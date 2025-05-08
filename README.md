@@ -17,6 +17,7 @@ Make sure you have the following installed and running:
 ```bash
 cd umls-helper/umls-search    # enter the project subfolder
 npm install                   # install @elastic/elasticsearch, etc
+```
 
 ## 3. Copy UMLS RRF Files
 
@@ -26,12 +27,15 @@ Place your downloaded **MRCONSO.RRF** and **MRSTY.RRF** into the **same director
 # from wherever you downloaded the files:
 cp /path/to/MRCONSO.RRF /path/to/umls-helper/umls-search/
 cp /path/to/MRSTY.RRF  /path/to/umls-helper/umls-search/
+```
 
 ## 4. Create index and load data
 
+```bash
 node elastic-index.js
 node --max-old-space-size=8192 load.js
+```
 
 ## 5. Search
 
-Open search.html and search
+Open search.html in a web browser and search
