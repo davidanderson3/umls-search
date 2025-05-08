@@ -1,6 +1,6 @@
-# umls-search
+# UMLS Local Search 
 
-# Setup & Install
+These are really simple scripts to help you search the UMLS locally on your machine using ElasticSearch. 
 
 ## 1. Prerequisites  
 Make sure you have the following installed and running:
@@ -8,7 +8,8 @@ Make sure you have the following installed and running:
 1. **Node.js v18+ & npm**  
 2. **Elasticsearch 8.x**
 3. **UMLS data files**  
-   - Get a UMLS license: https://uts.nlm.nih.gov/uts/signup-login. Once approved, download UMLS Metathesaurus Full Subset from https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html, which includes **MRCONSO.RRF** and **MRSTY.RRF**
+   - Get a UMLS license: https://uts.nlm.nih.gov/uts/signup-login.
+   - Once approved, download UMLS Metathesaurus Full Subset from https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html, which includes **MRCONSO.RRF** and **MRSTY.RRF**
 
 ---
 
@@ -29,13 +30,26 @@ cp /path/to/MRCONSO.RRF /path/to/umls-helper/umls-search/
 cp /path/to/MRSTY.RRF  /path/to/umls-helper/umls-search/
 ```
 
-## 4. Create index and load data
+## 4. Run ElasticSearch
+
+Usually something like: 
+
+```bash
+ELASTICSEARCH_DIRECTORY/bin/elasticsearch
+```
+
+## 5. Create index and load data
 
 ```bash
 node elastic-index.js
 node --max-old-space-size=8192 load.js
 ```
+## 6. Run a server
 
-## 5. Search
+```bash
+serve
+```
 
-Open search.html in a web browser and search
+## 7. Search
+
+Open search.html in a web browser and search.
