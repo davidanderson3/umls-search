@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>UMLS Search</title>
+  <style>
+    body { font-family: sans-serif; padding: 1em; max-width: 900px; margin: auto; }
+    input, select, button { font-size: 1rem; padding: 0.4em; margin: 0.2em; }
+    .card {
+      background: #f8f8f8;
+      padding: 0.7em;
+      margin-bottom: 0.7em;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      box-shadow: 1px 1px 4px rgba(0,0,0,0.05);
+      position: relative;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1em;
+      margin-bottom: 0.5em;
+    }
+    .left { font-size: 1rem; font-weight: bold; }
+    .tag { display: inline-block; background: #007acc; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; margin: 0 3px 3px 0; }
+    .details { display: none; margin-top: 0.5em; background: #fff; border-top: 1px solid #ddd; padding-top: 0.5em; }
+    .toggle-btn {
+      position: absolute;
+      top: 0.7em;
+      right: 0.7em;
+      font-size: 0.8rem;
+      padding: 0.3em 0.6em;
+    }
+    #pagination { margin-top: 1em; }
+    #pagination button { padding: 0.4em 1em; margin: 0.2em; }
+    pre.explain, pre.raw { background: #f0f0f0; padding: 0.5em; overflow-x: auto; max-height: 200px; white-space: pre-wrap; }
+    /* make results area wider */
+    #results { flex: 3; }
+  </style>
+</head>
+<body>
+  <h1>UMLS Search</h1>
+
+  <form id="searchForm">
+    <input id="query" placeholder="Enter search term..." required>
+    <select id="mode">
+      <option value="cui">Return CUIs</option>
+    </select>
+    <button type="submit">Search</button>
+    <label><input type="checkbox" id="explainToggle"> Explain</label>
+  </form>
+
+  <div style="display:flex; gap:2em; margin-top:1em;">
+    <div id="results"></div>
+  </div>
+
+  <div id="pagination" style="display:none;">
+    <button id="prevPage">⬅️ Previous</button>
+    <button id="nextPage">Next ➡️</button>
+  </div>
+
+  <!-- API Call moved to bottom -->
+  <div id="apiCallContainer" style="margin-top:1em;">
+    <pre id="apiCall" style="background:#f0f0f0; padding:1em; overflow-x:auto; font-size:0.8rem; display:none;"></pre>
+  </div>
+
+  <script>
+    // --- state ---
+    let pages = [], fetchTimeStack = [], totalHits = 0, totalPages = 0;
+    let currentPageIndex = 0, pageSize = 8;
+
+    function safeMap(innerHits) {
+      const hits = innerHits?.matched_codes?.hits?.hits;
+      if (!Array.isArray(hits)) return [];
+      const qnorm = document.getElementById('query').value
+        .normalize("NFKC").toLowerCase().trim();
+      return hits.map(c => {
+        const strs = Array.isArray(c._source.strings) ? c._source.strings : [];
+        return {
+          all_strings: strs.map(s => {
+            const raw = (typeof s === 'string' ? s.trim() : '');
+            return { raw, isExact: raw.normalize("NFKC").toLowerCase() === qnorm };
+          })
+        };
+      });
+    }
+
+    function hasExactMatch(hit) {
+      return safeMap(hit.inner_hits)
+        .some(d => d.all_strings.some(s => s.isExact));
+    }
+
+    function escapeHtml(str) {
+      return str.replaceAll("&","&amp;")
+                .replaceAll("<","&lt;")
+                .replaceAll(">","&gt;");
+    }
+
+    const clauseLabels = {
+      exact_pref_name:    'Exact preferred name',
+      phrase_pref_name:   'Phrase match on preferred name',
+      and_pref_name:      'Token AND match on preferred name',
+      exact_code:         'Exact match on code string',
+      phrase_code:        'Phrase match on code string',
+      and_code:           'Token AND match on code string',
+      fuzzy_code:         'Fuzzy match on code string'
+    };
+
+    function renderCUIs(hitsArr, explainEnabled, fuzzyParams) {
+  return hitsArr.map(hit => {
+    const src = hit._source;
+    const matchedStrings = safeMap(hit.inner_hits).flatMap(d => d.all_strings);
+
+    // Highlights arrays (may be empty)
+    const h = hit.highlight || {};
+    const prefHlArray = h.preferred_name || [];
+    const codeHlArray = h['codes.strings'] || [];
+
+    // Determine if we matched via the exact_pref_name clause
+    const isExactPref = (hit.matched_queries || []).includes('exact_pref_name');
+
+    // Build preferred name display: use highlight fragments if present,
+    // otherwise fall back to full name when exact-pref matched
+    const prefNameDisplay = prefHlArray.length
+      ? prefHlArray
+          .map(f => f.replace(/<\/?em>/g, '').trim())
+          .map(raw => escapeHtml(raw))
+          .join('<hr style="margin:4px 0;border-color:#ccc;"/>')
+      : (isExactPref
+          ? escapeHtml(src.preferred_name)
+          : '(none)');
+
+    // Explanation and raw JSON sections
+    const explainHtml = explainEnabled && hit._explanation
+      ? `<details><summary>Score Explanation</summary><pre class="explain">${escapeHtml(
+           JSON.stringify(hit._explanation, null, 2)
+         )}</pre></details>`
+      : '';
+    const rawHtml = explainEnabled
+      ? `<details><summary>Raw JSON</summary><pre class="raw">${escapeHtml(
+           JSON.stringify(hit, null, 2)
+         )}</pre></details>`
+      : '';
+
+    // Clause badges (human-readable)
+    const clauseBadges = (hit.matched_queries || [])
+      .map(name => `<span class="badge">${escapeHtml(clauseLabels[name] || name)}</span>`)
+      .join(' ');
+
+    // Normalized query string for any logic you need
+    const qnorm = document.getElementById('query').value
+      .normalize("NFKC").toLowerCase().trim();
+
+    // Build the details table
+    const detailsHtml = `
+      <table style="border-collapse:collapse;width:100%;">
+        <tr>
+          <th style="border:1px solid #ccc;padding:0.3em;text-align:left;">
+            Preferred Name Matches
+          </th>
+          <td style="border:1px solid #ccc;padding:0.3em;">
+            ${prefNameDisplay}
+          </td>
+        </tr>
+        <tr>
+          <th style="border:1px solid #ccc;padding:0.3em;text-align:left;">
+            Other Matches
+          </th>
+          <td style="border:1px solid #ccc;padding:0.3em;">
+            ${codeHlArray.length
+              ? codeHlArray
+                  .map(fragment => fragment.replace(/<\/?em>/g, '').trim())
+                  .join('<hr style="margin:4px 0;border-color:#ccc;"/>')
+              : '(none)'}
+          </td>
+        </tr>
+        <tr>
+          <th style="border:1px solid #ccc;padding:0.3em;text-align:left;">
+            Fuzzy Match
+          </th>
+          <td style="border:1px solid #ccc;padding:0.3em;">
+            ${fuzzyParams ? 'Yes' : 'No'}
+          </td>
+        </tr>
+      </table>
+      ${explainHtml}
+      ${rawHtml}
+    `;
+
+    return `
+      <div class="card">
+        <div class="header">
+          <div class="left">${escapeHtml(src.preferred_name || '(no name)')}</div>
+          <div>${src.CUI}</div>
+          <div>${src.STY.map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}</div>
+        </div>
+        <button class="toggle-btn">Show details</button>
+        <div class="details">${detailsHtml}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+    function renderPage() {
+      const resultsDiv = document.getElementById('results');
+      const hitsArr = pages[currentPageIndex] || [];
+      const fetchTime = fetchTimeStack[currentPageIndex];
+      let html = '';
+      if (typeof fetchTime === 'number') {
+        html += `<div style="font-style:italic;margin-bottom:0.5em;">
+                   Loaded page ${currentPageIndex+1} in ${fetchTime.toFixed(2)} s
+                 </div>`;
+      }
+      if (totalHits > 0) {
+        html += `<h2>Page ${currentPageIndex+1} of ${totalPages} – ${totalHits} total results</h2>`;
+      } else {
+        html += `<h2>Page ${currentPageIndex+1}</h2>`;
+      }
+      const explainEnabled = document.getElementById('explainToggle').checked;
+      const fuzzyParams = currentFuzzyParams;
+      html += hitsArr.length
+        ? renderCUIs(hitsArr, explainEnabled, fuzzyParams)
+        : `<pre>No results</pre>`;
+      resultsDiv.innerHTML = html;
+
+      resultsDiv.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.onclick = () => {
+          const det = btn.nextElementSibling;
+          const shown = det.style.display === 'block';
+          det.style.display = shown ? 'none' : 'block';
+          btn.textContent = shown ? 'Show details' : 'Hide details';
+        };
+      });
+      document.getElementById('prevPage').disabled = currentPageIndex===0;
+      document.getElementById('nextPage').disabled = currentPageIndex+1>=totalPages;
+      document.getElementById('pagination').style.display = 'block';
+    }
+
+    let currentFuzzyParams = null;
+    async function doSearch(pageIndex=0) {
+      if (pages[pageIndex]) {
+        currentPageIndex = pageIndex;
+        return renderPage();
+      }
+      const q = document.getElementById('query').value.trim();
+      const tokens = q.split(/\s+/).filter(t=>t);
+      let fuzziness = null;
+      if (tokens.length===1) {
+        const len = tokens[0].length;
+        if (len>5&&len<=7) fuzziness=1;
+        else if (len>7) fuzziness="AUTO";
+      }
+      currentFuzzyParams = fuzziness!=null
+        ? { fuzziness, prefix_length:3, max_expansions:50, transpositions:false }
+        : null;
+
+        const shouldClauses = [
+  // exact boost on preferred_name (keyword still for exact)
+  {
+    term: {
+      "preferred_name.keyword": {
+        value: q,
+        boost: 100,
+        _name: "exact_pref_name"
+      }
+    }
+  },
+
+  // phrase match on preferred_name with synonyms
+  {
+    match_phrase: {
+      "preferred_name": {
+        query:    q,
+        boost:    10,
+        analyzer: "synonym_analyzer",
+        _name:    "phrase_pref_name"
+      }
+    }
+  },
+
+  // AND‐token match on preferred_name with synonyms
+  {
+    match: {
+      "preferred_name": {
+        query:    q,
+        operator: "and",
+        boost:    5,
+        analyzer: "synonym_analyzer",
+        _name:    "and_pref_name"
+      }
+    }
+  },
+
+  // nested codes with synonyms
+  {
+    nested: {
+      path:       "codes",
+      score_mode: "max",
+      query: {
+        bool: {
+          should: [
+            {
+              term: {
+                "codes.strings.keyword": {
+                  value: q,
+                  boost: 50,
+                  _name: "exact_code"
+                }
+              }
+            },
+            {
+              match_phrase: {
+                "codes.strings": {
+                  query:    q,
+                  boost:    10,
+                  analyzer: "synonym_analyzer",
+                  _name:    "phrase_code"
+                }
+              }
+            },
+            {
+              match: {
+                "codes.strings": {
+                  query:    q,
+                  operator: "and",
+                  boost:    5,
+                  analyzer: "synonym_analyzer",
+                  _name:    "and_code"
+                }
+              }
+            },
+            // your fuzzy clause unchanged…
+            ...(fuzziness !== null
+              ? [{
+                  fuzzy: {
+                    "codes.strings": {
+                      value:          q,
+                      fuzziness,
+                      prefix_length:  3,
+                      max_expansions: 50,
+                      transpositions: false,
+                      boost:          1,
+                      _name:          "fuzzy_code"
+                    }
+                  }
+                }]
+              : [])
+          ],
+          minimum_should_match: 1
+        }
+      },
+      inner_hits: {
+        name: "matched_codes",
+        size: 6,
+        highlight: { fields: { preferred_name: {}, "codes.strings": {} } }
+      }
+    }
+  }
+];
+
+      const explain = document.getElementById('explainToggle').checked;
+      const body = {
+        from: pageIndex*pageSize,
+        size: pageSize,
+        track_total_hits: pageIndex===0,
+        _source:["preferred_name","CUI","STY"],
+        query:{ bool:{ should:shouldClauses, minimum_should_match:1 }},
+        highlight:{ fields:{ preferred_name:{}, "codes.strings":{} } },
+        ...(explain?{ explain:true }:{} )
+      };
+
+      document.getElementById('apiCall').textContent =
+        `POST /umls-cui/_search\n\n`+JSON.stringify(body,null,2);
+      document.getElementById('apiCall').style.display='block';
+
+      const start = performance.now();
+      const res = await fetch('http://localhost:9200/umls-cui/_search',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)
+      });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const duration = (performance.now()-start)/1000;
+
+      if(pageIndex===0 && data.hits.total!=null) {
+        totalHits = data.hits.total.value;
+        totalPages = Math.ceil(totalHits/pageSize);
+      }
+
+      const hitsPage = data.hits.hits;
+      pages[pageIndex] = hitsPage;
+      fetchTimeStack[pageIndex] = duration;
+
+      currentPageIndex = pageIndex;
+      renderPage();
+    }
+
+    document.getElementById('searchForm').addEventListener('submit', e=>{
+      e.preventDefault();
+      pages=[]; fetchTimeStack=[]; totalHits=0; totalPages=0; currentPageIndex=0;
+      doSearch(0).catch(err=>{
+        document.getElementById('results').innerHTML =
+          `<pre style="color:red;">❌ ${err.message}</pre>`;
+      });
+    });
+    document.getElementById('prevPage').addEventListener('click', ()=>{
+      if(currentPageIndex>0) doSearch(currentPageIndex-1);
+    });
+    document.getElementById('nextPage').addEventListener('click', ()=>{
+      if(currentPageIndex+1<totalPages) doSearch(currentPageIndex+1);
+    });
+  </script>
+</body>
+</html>
