@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>UMLS Search</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="umls-search.js"></script>
+</head>
+<body>
+    <h1>UMLS Search</h1>
+
+    <form id="searchForm">
+        <input id="query" placeholder="Enter search term..." required>
+        <select id="mode">
+            <option value="cui">Return CUIs</option>
+        </select>
+        <button type="submit">Search</button>
+    </form>
+
+    <div class="results-container">
+        <div id="results"></div>
+    </div>
+
+    <div id="pagination" style="display:none;">
+        <button id="prevPage">⬅️ Previous</button>
+        <button id="nextPage">Next ➡️</button>
+    </div>
+
+    <div id="apiCallContainer">
+        <pre id="apiCall"></pre>
+    </div>
+</body>
+</html>
