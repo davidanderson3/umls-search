@@ -44,14 +44,52 @@ ELASTICSEARCH_DIRECTORY/bin/elasticsearch
 node elastic-index.js
 node --max-old-space-size=8192 load.js
 ```
+
 load.js takes a few minutes. It's loading MRCONSO.RRF and MRSTY.RRF. 
 
-## 6. Run a server
+---
+
+## 6. Run the backend server
+
+This serves both the frontend and API together:
 
 ```bash
-serve
+node backend/server.js
 ```
+
+---
 
 ## 7. Search
 
-Open [localhost:3000/search.html](http://localhost:3000/search?) in a web browser and search.
+Use the web interface to search:
+```
+http://localhost:3000/
+```
+
+or query via API:
+```
+http://localhost:3000/api/search
+```
+
+---
+
+## 8. API
+
+### API Endpoint
+
+**GET** `/api/search?q=search_term&page=page_number&size=page_size`
+
+#### Parameters
+
+| Parameter | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| q        | string | Yes      | Search term to query |
+| page     | int    | No       | Zero-based page index (default = 0) |
+| size     | int    | No       | Page size (default = 100) |
+
+#### Example Request
+
+```bash
+curl "http://localhost:3000/api/search?q=diabetes&page=0&size=100"
+```
+

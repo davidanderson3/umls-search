@@ -4,19 +4,18 @@
     <meta charset="UTF-8">
     <title>UMLS Search</title>
     <link rel="stylesheet" href="style.css">
-    <script defer src="umls-search.js"></script>
 </head>
 <body>
     <h1>UMLS Search</h1>
 
     <form id="searchForm">
-        <input id="query" placeholder="Enter search term..." required>
-        <select id="mode">
-            <option value="cui">Return CUIs</option>
-        </select>
+        <input id="query" placeholder="Enter search term..." required autocomplete="off">
         <button type="submit">Search</button>
     </form>
-
+    <div id="paginationTop" style="display:none;">
+        <button id="prevPageTop">⬅️ Previous</button>
+        <button id="nextPageTop">Next ➡️</button>
+    </div>
     <div class="results-container">
         <div id="results"></div>
     </div>
@@ -29,5 +28,10 @@
     <div id="apiCallContainer">
         <pre id="apiCall"></pre>
     </div>
+
+    <!-- ✅ scripts at bottom: guarantees DOM loaded -->
+    <!-- shared ranker must load BEFORE umls-search -->
+    <script src="ranker.js"></script> 
+    <script src="umls-search.js"></script>
 </body>
 </html>
