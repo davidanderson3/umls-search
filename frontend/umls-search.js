@@ -30,7 +30,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const codesMatch = codesStrings.some(s => normalizeForExactMatch(s) === queryExact);
             const isExactMatch = prefNameMatch || codesMatch;
 
-            const scoreDisplay = (typeof hit._score === 'number') ? hit._score.toFixed(2) : '(n/a)';
             const prefNameDisplay = src.preferred_name ? escapeHtml(src.preferred_name) : '(none)';
             const prefMatchDisplay = prefNameMatch ? '✅' : '—';
             const codesMatchDisplay = codesMatch ? '✅' : '—';
@@ -40,7 +39,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="left">${prefNameDisplay}${isExactMatch ? ' <span style="color:green;font-weight:bold;">✅ EXACT</span>' : ''}</div>
                     <div>CUI: ${src.CUI ? `<a href="https://uts.nlm.nih.gov/uts/umls/concept/${escapeHtml(src.CUI)}" target="_blank" rel="noopener noreferrer">${escapeHtml(src.CUI)}</a>` : '(none)'}</div>
                     <div>${(src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}</div>
-                    <div>Score: ${scoreDisplay}</div>
                 </div>
             </div>`;
         }).join('');
