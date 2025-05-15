@@ -124,7 +124,13 @@ app.get('/api/search', async (req, res) => {
         scoredHits.sort((a, b) => b._customScore - a._customScore);
 
         // ✅ 5️⃣ Final result = exact matches first, then re-ranked hits
-        const finalHits = [...exactMatchDocs, ...scoredHits];
+        let finalHits;
+        if (page === 0) {
+            // Only include exact matches on first page
+            finalHits = [...exactMatchDocs, ...scoredHits];
+        } else {
+            finalHits = scoredHits;
+        }
 
         res.json({
             total: fullResult.hits.total.value,
