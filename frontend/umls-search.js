@@ -1,3 +1,19 @@
+function getQueryInput() {
+    return document.getElementById('query').value; // Ensure 'query' matches the ID of your input field
+}
+
+function prepareForSearch(text) {
+    return text.normalize("NFKC").toLowerCase()
+        .replace(/\b(\w+)[’']s\b/gi, '$1')
+        .trim();
+}
+
+function escapeHtml(str) {
+    return str.replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // ======================
     // Config
@@ -28,23 +44,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // ======================
     const $ = id => document.getElementById(id);
 
-    // ✅ LOCAL helper only (no global sharing anymore)
-    function prepareForSearch(text) {
-        return text.normalize("NFKC").toLowerCase()
-            .replace(/\b(\w+)[’']s\b/gi, '$1')
-            .trim();
-    }
-
-    function escapeHtml(str) {
-        return str.replaceAll("&","&amp;")
-                  .replaceAll("<","&lt;")
-                  .replaceAll(">","&gt;");
-    }
-
-    function getQueryInput() {
-        return $(SELECTORS.queryInput).value;
-    }
-
     function setApiCallText(q, pageIndex) {
         const text = `GET ${CONFIG.backendUrl}?q=${q}&page=${pageIndex}&size=${CONFIG.pageSize}`;
         const el = $(SELECTORS.apiCall);
@@ -61,39 +60,57 @@ document.addEventListener("DOMContentLoaded", () => {
         SELECTORS.pagination.forEach(id => $(id).style.display = 'block');
     }
 
-    // ======================
-    // UI Rendering
-    // ======================
+    function addRowClickListeners(hitsArr) {
+        const rows = document.querySelectorAll('.result-row');
+        if (!rows.length) {
+            console.error('No rows found to attach click listeners.');
+            return;
+        }
+
+        rows.forEach(row => {
+            row.addEventListener('click', () => {
+                const index = row.getAttribute('data-index');
+                const detailsDiv = document.getElementById('details');
+                if (!detailsDiv) {
+                    console.error('Details container not found.');
+                    return;
+                }
+
+                // Render the details for the selected row
+                detailsDiv.innerHTML = renderDetails(hitsArr[index]);
+
+                // Highlight the selected row
+                document.querySelectorAll('.result-row').forEach(r => r.classList.remove('selected-row'));
+                row.classList.add('selected-row');
+            });
+        });
+    }
+
     function renderCUIs(hitsArr) {
-        const queryExact = prepareForSearch(getQueryInput());
+        return `
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th>Preferred Name</th>
+                    <th>CUI</th>
+                    <th>Semantic Types</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${hitsArr.map((hit, index) => {
+                    const src = hit._source;
+                    const prefName = src.preferred_name || '(none)';
+                    const semanticTypes = (src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ');
 
-        return hitsArr.map(hit => {
-            const src = hit._source;
-            const prefName = src.preferred_name || '';
-            const prefNameMatch = prepareForSearch(prefName) === queryExact;
-
-            const codesStrings = (src.codes || []).flatMap(c => c.strings || []);
-            const codesMatch = codesStrings.some(s => prepareForSearch(s) === queryExact);
-            const isExactMatch = prefNameMatch || codesMatch;
-
-            const prefNameDisplay = prefName ? escapeHtml(prefName) : '(none)';
-
-            return `
-            <div class="card">
-                <div class="header">
-                    <div class="left">
-                        ${prefNameDisplay}
-                        ${isExactMatch ? ' <span style="color:green;font-weight:bold;">✅ EXACT</span>' : ''}
-                    </div>
-                    <div>
-                        CUI: ${src.CUI ? `<a href="https://uts.nlm.nih.gov/uts/umls/concept/${escapeHtml(src.CUI)}" target="_blank" rel="noopener noreferrer">${escapeHtml(src.CUI)}</a>` : '(none)'}
-                    </div>
-                    <div>
-                        ${(src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}
-                    </div>
-                </div>
-            </div>`;
-        }).join('');
+                    return `
+                    <tr class="result-row" data-index="${index}">
+                        <td>${escapeHtml(prefName)}</td>
+                        <td>${src.CUI ? `<a href="https://uts.nlm.nih.gov/uts/umls/concept/${escapeHtml(src.CUI)}" target="_blank" rel="noopener noreferrer">${escapeHtml(src.CUI)}</a>` : '(none)'}</td>
+                        <td>${semanticTypes}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
     }
 
     function renderPage() {
@@ -107,19 +124,22 @@ document.addEventListener("DOMContentLoaded", () => {
                      </div>`;
         }
 
-        html += totalHits > 0
-            ? `<h2>Page ${currentPageIndex + 1} of ${totalPages} – ${totalHits} total results</h2>`
-            : `<h2>Page ${currentPageIndex + 1}</h2>`;
+        html += `
+        <div class="two-column-layout">
+            <div class="left-column">
+                ${pages.length ? renderCUIs(pages) : '<p>No results</p>'}
+            </div>
+            <div class="right-column" id="details">
+                <p>Select a row to view details</p>
+            </div>
+        </div>`;
 
-        html += pages.length ? renderCUIs(pages) : `<pre>No results</pre>`;
         resultsDiv.innerHTML = html;
 
         setPaginationButtons();
+        addRowClickListeners(pages); // Attach row click listeners
     }
 
-    // ======================
-    // Search Logic
-    // ======================
     async function doSearch(pageIndex = 0) {
         const q = prepareForSearch(getQueryInput());
         setApiCallText(q, pageIndex);
@@ -140,9 +160,6 @@ document.addEventListener("DOMContentLoaded", () => {
         renderPage();
     }
 
-    // ======================
-    // Event Listeners
-    // ======================
     $(SELECTORS.searchForm).addEventListener('submit', e => {
         e.preventDefault();
         pages = [];
@@ -168,3 +185,38 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
+function renderDetails(hit) {
+    const src = hit._source;
+    const prefName = src.preferred_name || '(none)';
+    const queryExact = prepareForSearch(getQueryInput());
+
+    const highlightTerm = (text, term) => {
+        const regex = new RegExp(`(${escapeHtml(term)})`, 'gi');
+        return text.replace(regex, '<span class="highlight">$1</span>');
+    };
+
+    const namesHtml = (src.codes || [])
+        .flatMap(c => c.strings || [])
+        .map(name => `<p>${highlightTerm(escapeHtml(name), queryExact)}</p>`)
+        .join('');
+
+    const definitionsHtml = (src.definitions || [])
+        .map(def => `<p>${highlightTerm(escapeHtml(def), queryExact)}</p>`)
+        .join('');
+
+    return `
+    <div class="details">
+        <h2>${escapeHtml(prefName)}</h2>
+        <p><strong>CUI:</strong> ${src.CUI ? `<a href="https://uts.nlm.nih.gov/uts/umls/concept/${escapeHtml(src.CUI)}" target="_blank" rel="noopener noreferrer">${escapeHtml(src.CUI)}</a>` : '(none)'}</p>
+        <p><strong>Semantic Types:</strong> ${(src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}</p>
+        <div>
+            <h3>Names</h3>
+            ${namesHtml || '<p>(none)</p>'}
+        </div>
+        <div>
+            <h3>Definitions</h3>
+            ${definitionsHtml || '<p>(none)</p>'}
+        </div>
+    </div>`;
+}
