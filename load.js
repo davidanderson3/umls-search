@@ -45,38 +45,68 @@ function loadSTY(path) {
   });
 }
 
+function loadMRRank(path) {
+  return new Promise((resolve) => {
+    const map = new Map();
+    const rl = readline.createInterface({ input: fs.createReadStream(path) });
+
+    rl.on('line', (line) => {
+      const [SAB, TTY, , , RANK] = line.split('|');
+      map.set(`${SAB}|${TTY}`, parseInt(RANK, 10));
+    });
+
+    rl.on('close', () => resolve(map));
+  });
+}
+
 async function run() {
   const codePrefMap = await loadPreferredCodeNames(MRCONSO);
   const styMap = await loadSTY(MRSTY);
+  const mrRankMap = await loadMRRank('MRRANK.RRF');
   const rl = readline.createInterface({ input: fs.createReadStream(MRCONSO) });
 
   let currentCUI = null, doc = null, codesMap = null;
   let count = 0;
   const bulkOps = [];
 
+  // Helper to set code preferred_name using MRRANK
+  function setPreferredNamesForCodes(codesMap) {
+    for (const code of codesMap.values()) {
+      if (code._ranked.length > 0) {
+        code._ranked.sort((a, b) => a.rank - b.rank);
+        code.preferred_name = code._ranked[0].STR;
+      } else if (code.strings.length > 0) {
+        code.preferred_name = code.strings[0];
+      } else {
+        code.preferred_name = null;
+      }
+      delete code._ranked;
+    }
+  }
+
   const flush = async (finalFlush = false) => {
     if (!doc) return;
-  
+
+    setPreferredNamesForCodes(codesMap);
     doc.codes = Array.from(codesMap.values());
     bulkOps.push({ index: { _index: 'umls-cui', _id: doc.CUI } });
     bulkOps.push(doc);
     count++;
-  
+
     if (bulkOps.length >= BATCH_SIZE * 2 || finalFlush) {
       await es.bulk({ body: bulkOps });
       bulkOps.length = 0;
       console.log(`📤 Indexed ${count.toLocaleString()} CUIs`);
     }
-  
+
     // Always reset after flush
     doc = null;
     codesMap = null;
   };
-  
 
   for await (const line of rl) {
     const cols = line.split('|');
-    const [CUI, LAT, TS, , , , ISPREF, AUI, , SCUI, SDUI, SAB, TTY, CODE, STR] = cols;
+    const [CUI, LAT, TS, , , , ISPREF, , , , , SAB, TTY, CODE, STR] = cols;
     const SUPPRESS = cols[16];
     if (LAT !== 'ENG' || SUPPRESS !== 'N') continue;
 
@@ -92,24 +122,31 @@ async function run() {
       codesMap = new Map();
     }
 
-    // Set preferred name for the CUI
+    // Preserve CUI preferred_name logic
     if (!doc.preferred_name && TS === 'P' && ISPREF === 'Y') {
       doc.preferred_name = STR;
     }
 
+    // Build codes map
     const key = `${SAB}|${CODE}`;
     if (!codesMap.has(key)) {
       codesMap.set(key, {
         SAB,
         CODE,
-        preferred_name: codePrefMap.get(key) || null,
-        strings: []
+        preferred_name: null,
+        strings: [],
+        _ranked: []
       });
     }
-    codesMap.get(key).strings.push(STR);
+    const codeObj = codesMap.get(key);
+    codeObj.strings.push(STR);
+
+    // Store for ranking
+    const rank = mrRankMap.get(`${SAB}|${TTY}`) ?? 9999;
+    codeObj._ranked.push({ STR, rank });
   }
 
-  // ✅ Final flush to ensure last CUI is not missed
+  // Final flush after loop
   await flush(true);
 
   console.log(`✅ Finished indexing ${count.toLocaleString()} CUIs`);
