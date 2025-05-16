@@ -9,7 +9,7 @@ Make sure you have the following installed and running:
 2. **Elasticsearch 8.x**
 3. **UMLS data files**  
    - Get a UMLS license: [https://uts.nlm.nih.gov/uts/signup-login](https://uts.nlm.nih.gov/uts/signup-login).
-   - Once approved, download UMLS Metathesaurus Full Subset from [https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html](https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html), which includes **MRCONSO.RRF** and **MRSTY.RRF**
+   - Once approved, download UMLS Metathesaurus Full Subset from [https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html](https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html), which includes **MRCONSO.RRF**, **MRSTY.RRF**, and **MRRANK.RRF**
 
 ---
 
@@ -24,7 +24,7 @@ npm install                   # install @elastic/elasticsearch, etc
 
 ## 3. Copy UMLS RRF Files
 
-Place your downloaded **MRCONSO.RRF** and **MRSTY.RRF** into the **same directory** as `load.js` (i.e. `umls-helper/umls-search/`):
+Place your downloaded **MRCONSO.RRF**, **MRSTY.RRF**, and **MRRANK.RRF** into the **same directory** as `load.js` (i.e. `umls-helper/umls-search/`):
 
 ```bash
 # from wherever you downloaded the files:
