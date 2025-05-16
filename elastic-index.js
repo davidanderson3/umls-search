@@ -1,6 +1,11 @@
 // elastic-index.js
 const { Client } = require('@elastic/elasticsearch');
-const SYNONYMS = require('./synonyms.json');
+const fs = require('fs');
+const path = require('path');
+
+const SYNONYM_FILE_PATH = path.join(__dirname, 'synonyms.txt');
+const synonymsText = fs.readFileSync(SYNONYM_FILE_PATH, 'utf-8').split('\n').map(s => s.trim()).filter(Boolean);
+
 
 const INDEX = 'umls-cui';
 const es = new Client({
@@ -14,7 +19,7 @@ async function ensureSynonymAnalyzer() {
             filter: {
                 custom_synonym_filter: {
                     type: 'synonym_graph',
-                    synonyms: SYNONYMS
+                    synonyms: synonymsText
                 }
             },
             normalizer: {
@@ -40,7 +45,15 @@ async function ensureSynonymAnalyzer() {
     };
 
     const mappingProps = {
-        CUI: { type: 'keyword' },
+        CUI: { 
+            type: 'keyword',
+            fields: {
+                lowercase_keyword: {
+                    type: 'keyword',
+                    normalizer: 'lowercase_normalizer'
+                }
+            }
+        },
         STY: { type: 'keyword' },
         preferred_name: {
             type: 'text',
@@ -58,7 +71,15 @@ async function ensureSynonymAnalyzer() {
             type: 'nested',
             properties: {
                 SAB: { type: 'keyword' },
-                CODE: { type: 'keyword' },
+                CODE: { 
+                    type: 'keyword',
+                    fields: {
+                        lowercase_keyword: {
+                            type: 'keyword',
+                            normalizer: 'lowercase_normalizer'
+                        }
+                    }
+                },
                 preferred_name: {
                     type: 'text',
                     fields: {
@@ -75,7 +96,7 @@ async function ensureSynonymAnalyzer() {
                     search_analyzer: 'synonym_analyzer',
                     fields: {
                         keyword: { type: 'keyword' },
-                        lowercase_keyword: { // ✅ THIS FIXES THE MISMATCH
+                        lowercase_keyword: {
                             type: 'keyword',
                             normalizer: 'lowercase_normalizer'
                         }

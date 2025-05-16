@@ -11,22 +11,27 @@ const es = new Client({ node: 'http://127.0.0.1:9200' });
 app.use(express.static(path.join(__dirname, '../frontend')));
 
 app.get('/api/search', async (req, res) => {
-    const query = (req.query.q || '').trim();
-    if (!query) return res.status(400).json({ error: 'Missing query parameter ?q=' });
+    const rawQuery = (req.query.q || '').trim();
+    if (!rawQuery) return res.status(400).json({ error: 'Missing query parameter ?q=' });
+
+    function normalizeQuery(q) {
+        return q.replace(/%/g, ' percent');
+    }
+
+    const query = normalizeQuery(rawQuery);
+    const lcQuery = query.toLowerCase();
+    const queryWords = lcQuery.split(/\s+/);
+    const page = Math.max(parseInt(req.query.page) || 1, 1) - 1;
+    const size = parseInt(req.query.size) || 100;
+    const from = page * size;
+    const coverageWeight = 0.3;
+
+    console.log(`BACKEND REQUEST: q="${rawQuery}" (normalized: "${query}") page=${page} size=${size} from=${from}`);
 
     try {
-        const page = Math.max(parseInt(req.query.page) || 1, 1) - 1;
-        const size = parseInt(req.query.size) || 100;
-        const from = page * size;
-        const lcQuery = query.toLowerCase();
-        const queryWords = query.toLowerCase().split(/\s+/);
-        const coverageWeight = 0.3;
-
-        console.log(`BACKEND REQUEST: q="${query}" page=${page} size=${size} from=${from}`);
-
         let exactMatchDocs = [];
 
-        // ✅ 1️⃣ Exact match search on preferred_name
+        // 1️⃣ Exact match on preferred_name.lowercase_keyword
         const preferredResult = await es.search({
             index: 'umls-cui',
             size: 100,
@@ -41,7 +46,48 @@ app.get('/api/search', async (req, res) => {
             console.log(`✅ Found ${preferredResult.hits.hits.length} exact preferred_name match(es)`);
         }
 
-        // ✅ 2️⃣ Exact match search on codes[].strings
+        // 1️⃣.5 Exact match on CUI (case-insensitive)
+        const cuiResult = await es.search({
+            index: 'umls-cui',
+            size: 100,
+            _source: ['preferred_name', 'CUI', 'STY', 'codes'],
+            query: {
+                term: { "CUI.lowercase_keyword": lcQuery }
+            }
+        });
+
+        if (cuiResult.hits.total.value > 0) {
+            const cuiHits = cuiResult.hits.hits.filter(hit =>
+                !exactMatchDocs.find(doc => doc._id === hit._id)
+            );
+            exactMatchDocs.push(...cuiHits);
+            console.log(`✅ Found ${cuiHits.length} exact CUI match(es)`);
+        }
+
+        // 1️⃣.6 Exact match on codes.code (case-insensitive)
+        const codeResult = await es.search({
+            index: 'umls-cui',
+            size: 100,
+            _source: ['preferred_name', 'CUI', 'STY', 'codes'],
+            query: {
+                nested: {
+                    path: "codes",
+                    query: {
+                        term: { "codes.CODE.lowercase_keyword": lcQuery }
+                    }
+                }
+            }
+        });
+
+        if (codeResult.hits.total.value > 0) {
+            const codeHits = codeResult.hits.hits.filter(hit =>
+                !exactMatchDocs.find(doc => doc._id === hit._id)
+            );
+            exactMatchDocs.push(...codeHits);
+            console.log(`✅ Found ${codeHits.length} exact codes.code match(es)`);
+        }
+
+        // 2️⃣ Exact match on codes.strings.lowercase_keyword
         const codesResult = await es.search({
             index: 'umls-cui',
             size: 100,
@@ -50,7 +96,7 @@ app.get('/api/search', async (req, res) => {
                 nested: {
                     path: "codes",
                     query: {
-                        term: { "codes.strings.keyword_lowercase": lcQuery }
+                        term: { "codes.strings.lowercase_keyword": lcQuery }
                     }
                 }
             }
@@ -64,7 +110,7 @@ app.get('/api/search', async (req, res) => {
             console.log(`✅ Found ${codesHits.length} exact codes.strings match(es)`);
         }
 
-        // ✅ 3️⃣ Full normal search
+        // 3️⃣ Full match with synonym expansion
         const fullResult = await es.search({
             index: 'umls-cui',
             from,
@@ -97,14 +143,13 @@ app.get('/api/search', async (req, res) => {
 
         let hits = fullResult.hits.hits;
 
-        // ✅ Remove exact matches from hits
+        // Remove exact matches
         const exactIds = new Set(exactMatchDocs.map(doc => doc._id));
         hits = hits.filter(hit => !exactIds.has(hit._id));
 
-        // ✅ 4️⃣ Custom scoring for remaining hits
+        // Custom scoring
         const scoredHits = hits.map(hit => {
             const src = hit._source;
-
             const codesMatchCount = (src.codes || []).flatMap(c => c.strings || [])
                 .filter(s => s.toLowerCase().includes(lcQuery)).length;
 
@@ -117,20 +162,15 @@ app.get('/api/search', async (req, res) => {
             const coverageRatio = queryWords.length ? queryWordMatches / queryWords.length : 0;
 
             const combinedScore = codesMatchCount + (coverageRatio * coverageWeight);
-
             return { ...hit, _customScore: combinedScore };
         });
 
         scoredHits.sort((a, b) => b._customScore - a._customScore);
 
-        // ✅ 5️⃣ Final result = exact matches first, then re-ranked hits
-        let finalHits;
-        if (page === 0) {
-            // Only include exact matches on first page
-            finalHits = [...exactMatchDocs, ...scoredHits];
-        } else {
-            finalHits = scoredHits;
-        }
+        // Combine final results
+        const finalHits = page === 0
+            ? [...exactMatchDocs, ...scoredHits]
+            : scoredHits;
 
         res.json({
             total: fullResult.hits.total.value,
@@ -142,6 +182,7 @@ app.get('/api/search', async (req, res) => {
         res.status(500).json({ error: 'Elasticsearch error', details: err.meta?.body?.error || err.message });
     }
 });
+
 
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/index.html'));
