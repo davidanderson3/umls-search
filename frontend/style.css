@@ -36,14 +36,27 @@ input, select, button {
   flex: 1 1 auto;
 }
 
+/* Highlighted terms */
+.highlight {
+    background-color: yellow;
+    font-weight: bold;
+}
+
+/* Exact match indicator */
+.exact-match {
+    color: green;
+    font-weight: bold;
+}
+
+/* Semantic types (blue tags) */
 .tag {
-  display: inline-block;
-  background: #007acc;
-  color: white;
-  padding: 1px 5px;        /* ✅ smaller tag padding */
-  border-radius: 3px;
-  font-size: 12px;          /* ✅ smaller tag text */
-  margin: 0 2px 2px 0;
+    display: inline-block;
+    background-color: #007acc;
+    color: white;
+    padding: 2px 6px;
+    margin: 2px;
+    border-radius: 4px;
+    font-size: 12px;
 }
 
 #pagination {
@@ -79,6 +92,122 @@ pre.raw {
   flex: 3;
 }
 
-/* ✅ removed unused:
-.details, .toggle-btn
-*/
+/* General styles */
+body {
+    font-family: sans-serif;
+    padding: 1em;
+    max-width: 1000px;
+    margin: auto;
+    font-size: 14px;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1em;
+    font-size: 14px;
+}
+
+.results-table th, .results-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.results-table th {
+    background-color: #f4f4f4;
+    font-weight: bold;
+}
+
+.results-table tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+.results-table tr:hover {
+    background-color: #f1f1f1;
+    cursor: pointer;
+}
+
+/* Highlight the selected row */
+.results-table tr.selected-row {
+    background-color: #d9edf7;
+    font-weight: bold;
+}
+
+/* Two-column layout for results and details */
+.two-column-layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+/* Make the left column (table area) wider */
+.left-column {
+    flex: 3; /* Increase the width of the table area */
+    overflow-y: auto;
+    max-height: 80vh;
+}
+
+/* Adjust the right column (details area) to take less space */
+.right-column {
+    flex: 2; /* Reduce the width of the details area */
+    border: 1px solid #ddd;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    overflow-y: auto;
+    max-height: 80vh;
+}
+
+/* Two-column layout for details */
+.two-column-details {
+    display: flex;
+    gap: 20px;
+}
+
+.two-column-details > div {
+    flex: 1;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+}
+
+/* Remove styling from the first column */
+.results-table th:first-child,
+.results-table td:first-child {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+    text-align: left;
+    font-weight: normal;
+    color: inherit;
+}
+
+function renderPage() {
+    const resultsDiv = $(SELECTORS.results);
+    const fetchTime = fetchTimeStack[0];
+    let html = '';
+
+    if (typeof fetchTime === 'number') {
+        html += `<div style="font-style:italic;margin-bottom:0.5em;">
+                    Loaded page ${currentPageIndex + 1} in ${fetchTime.toFixed(2)} s
+                 </div>`;
+    }
+
+    html += `
+    <div class="two-column-layout">
+        <div class="left-column">
+            ${pages.length ? renderCUIs(pages) : '<p>No results</p>'}
+        </div>
+        <div class="right-column" id="details">
+            <p>Select a row to view details</p>
+        </div>
+    </div>`;
+
+    resultsDiv.innerHTML = html;
+
+    setPaginationButtons();
+    addRowClickListeners(pages); // Attach row click listeners
+}
