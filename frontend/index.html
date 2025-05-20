@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>UMLS Search</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <h1>UMLS Search</h1>
 
@@ -28,8 +30,41 @@
     <div id="apiCallContainer">
         <pre id="apiCall"></pre>
     </div>
+    <template id="table-template">
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Preferred Name</th>
+                    <th>CUI</th>
+                    <th>Semantic Types</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- rows will go here -->
+            </tbody>
+        </table>
+    </template>
+
+    <template id="details-template">
+        <div class="details">
+            <h2 class="details-name"></h2>
+            <p><strong>CUI:</strong> <a class="details-cui" target="_blank"></a></p>
+            <p><strong>Semantic Types:</strong> <span class="details-sty"></span></p>
+            <div>
+                <h3>Names</h3>
+                <div class="details-names"></div>
+            </div>
+            <div>
+                <h3>Definitions</h3>
+                <div class="details-defs"></div>
+            </div>
+        </div>
+    </template>
 
     <!-- ✅ scripts at bottom: guarantees DOM loaded -->
-    <script src="umls-search.js"></script>
+    <script type="module" src="main.js"></script>
+
 </body>
+
 </html>
