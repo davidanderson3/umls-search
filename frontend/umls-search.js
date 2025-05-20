@@ -10,8 +10,8 @@ function prepareForSearch(text) {
 
 function escapeHtml(str) {
     return str.replaceAll("&", "&amp;")
-              .replaceAll("<", "&lt;")
-              .replaceAll(">", "&gt;");
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -87,10 +87,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderCUIs(hitsArr) {
+        const queryExact = prepareForSearch(getQueryInput());
+
         return `
         <table class="results-table">
             <thead>
                 <tr>
+                    <th></th> <!-- New column for the green checkmark -->
                     <th>Preferred Name</th>
                     <th>CUI</th>
                     <th>Semantic Types</th>
@@ -98,17 +101,24 @@ document.addEventListener("DOMContentLoaded", () => {
             </thead>
             <tbody>
                 ${hitsArr.map((hit, index) => {
-                    const src = hit._source;
-                    const prefName = src.preferred_name || '(none)';
-                    const semanticTypes = (src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ');
+            const src = hit._source;
+            const prefName = src.preferred_name || '(none)';
+            const prefNameMatch = prepareForSearch(prefName) === queryExact;
 
-                    return `
+            const codesStrings = (src.codes || []).flatMap(c => c.strings || []);
+            const codesMatch = codesStrings.some(s => prepareForSearch(s) === queryExact);
+            const isExactMatch = prefNameMatch || codesMatch;
+
+            const semanticTypes = (src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ');
+
+            return `
                     <tr class="result-row" data-index="${index}">
+                        <td>${isExactMatch ? '<span class="exact-match">✅</span>' : ''}</td>
                         <td>${escapeHtml(prefName)}</td>
                         <td>${src.CUI ? `<a href="https://uts.nlm.nih.gov/uts/umls/concept/${escapeHtml(src.CUI)}" target="_blank" rel="noopener noreferrer">${escapeHtml(src.CUI)}</a>` : '(none)'}</td>
                         <td>${semanticTypes}</td>
                     </tr>`;
-                }).join('')}
+        }).join('')}
             </tbody>
         </table>`;
     }
@@ -120,25 +130,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (typeof fetchTime === 'number') {
             html += `<div style="font-style:italic;margin-bottom:0.5em;">
-                        Loaded page ${currentPageIndex + 1} in ${fetchTime.toFixed(2)} s
-                     </div>`;
+                    Loaded page ${currentPageIndex + 1} in ${fetchTime.toFixed(2)} s
+                 </div>`;
         }
 
+        // Add result summary here
+        const pageStart = currentPageIndex * CONFIG.pageSize + 1;
+        const rawPageEnd = pageStart + pages.length - 1;
+        const pageEnd = Math.min(rawPageEnd, totalHits);
+
+        html += `<div>Showing results ${pageStart}–${pageEnd} of ${totalHits}</div>`;
+
+
         html += `
-        <div class="two-column-layout">
-            <div class="left-column">
-                ${pages.length ? renderCUIs(pages) : '<p>No results</p>'}
-            </div>
-            <div class="right-column" id="details">
-                <p>Select a row to view details</p>
-            </div>
-        </div>`;
+    <div class="two-column-layout">
+        <div class="left-column">
+            ${pages.length ? renderCUIs(pages) : '<p>No results</p>'}
+        </div>
+        <div class="right-column" id="details">
+            <p>Select a row to view details</p>
+        </div>
+    </div>`;
 
         resultsDiv.innerHTML = html;
 
         setPaginationButtons();
         addRowClickListeners(pages); // Attach row click listeners
     }
+
 
     async function doSearch(pageIndex = 0) {
         const q = prepareForSearch(getQueryInput());
@@ -149,10 +168,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const data = await res.json();
+        console.log('🔍 Backend response:', data); // Log the backend response
+
         const duration = (performance.now() - start) / 1000;
 
         totalHits = data.total;
         pages = data.results;
+        console.log(`🔍 Results received from backend: ${data.results.length}`);
 
         totalPages = Math.ceil(totalHits / CONFIG.pageSize);
         fetchTimeStack = [duration];
@@ -191,6 +213,8 @@ function renderDetails(hit) {
     const prefName = src.preferred_name || '(none)';
     const queryExact = prepareForSearch(getQueryInput());
 
+    console.log('Rendering details for:', src); // Log the source data
+
     const highlightTerm = (text, term) => {
         const regex = new RegExp(`(${escapeHtml(term)})`, 'gi');
         return text.replace(regex, '<span class="highlight">$1</span>');
@@ -219,4 +243,46 @@ function renderDetails(hit) {
             ${definitionsHtml || '<p>(none)</p>'}
         </div>
     </div>`;
+}
+
+async function loadDefinitions(defPath, consoPath) {
+  return new Promise((resolve) => {
+    const map = new Map();
+    const validCUIs = new Set();
+
+    // Step 1: Load valid CUIs with `LAT === 'ENG'` from MRCONSO.RRF
+    const rlConso = readline.createInterface({ input: fs.createReadStream(consoPath) });
+    rlConso.on('line', (line) => {
+      const cols = line.split('|');
+      const CUI = cols[0];
+      const LAT = cols[1];
+      const SUPPRESS = cols[16];
+      if (LAT === 'ENG' && SUPPRESS === 'N') {
+        validCUIs.add(CUI);
+      }
+    });
+
+    rlConso.on('close', () => {
+      console.log(`✅ Loaded ${validCUIs.size.toLocaleString()} CUIs with LAT === 'ENG'`);
+
+      // Step 2: Load definitions from MRDEF.RRF for valid CUIs
+      const rlDef = readline.createInterface({ input: fs.createReadStream(defPath) });
+      rlDef.on('line', (line) => {
+        const cols = line.split('|');
+        const CUI = cols[0];
+        const DEF = cols[5];
+
+        if (validCUIs.has(CUI)) {
+          console.log(`Processing definition for CUI: ${CUI}, DEF: ${DEF}`);
+          if (!map.has(CUI)) map.set(CUI, []);
+          map.get(CUI).push(DEF);
+        }
+      });
+
+      rlDef.on('close', () => {
+        console.log(`✅ Loaded definitions for ${map.size.toLocaleString()} CUIs`);
+        resolve(map);
+      });
+    });
+  });
 }
