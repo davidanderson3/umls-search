@@ -45,7 +45,7 @@ async function ensureSynonymAnalyzer() {
     };
 
     const mappingProps = {
-        CUI: { 
+        CUI: {
             type: 'keyword',
             fields: {
                 lowercase_keyword: {
@@ -67,11 +67,20 @@ async function ensureSynonymAnalyzer() {
                 }
             }
         },
+        atom_text: {
+            type: 'text',
+            analyzer: 'english',
+            search_analyzer: 'synonym_analyzer',
+            fields: {
+                keyword: { type: 'keyword' }
+            }
+        },
+
         codes: {
             type: 'nested',
             properties: {
                 SAB: { type: 'keyword' },
-                CODE: { 
+                CODE: {
                     type: 'keyword',
                     fields: {
                         lowercase_keyword: {

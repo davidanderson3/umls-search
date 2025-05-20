@@ -36,7 +36,7 @@ function loadSTY(path) {
     const rl = readline.createInterface({ input: fs.createReadStream(path) });
 
     rl.on('line', (line) => {
-      const [CUI,, , STY] = line.split('|');
+      const [CUI, , , STY] = line.split('|');
       if (!map.has(CUI)) map.set(CUI, []);
       map.get(CUI).push(STY);
     });
@@ -59,10 +59,50 @@ function loadMRRank(path) {
   });
 }
 
+async function loadDefinitions(defPath, consoPath) {
+  return new Promise((resolve) => {
+    const map = new Map();
+    const validCUIs = new Set();
+
+    // Step 1: Load valid CUIs with `LAT === 'ENG'` from MRCONSO.RRF
+    const rlConso = readline.createInterface({ input: fs.createReadStream(consoPath) });
+    rlConso.on('line', (line) => {
+      const cols = line.split('|');
+      const CUI = cols[0];
+      const LAT = cols[1];
+      const SUPPRESS = cols[16];
+      if (LAT === 'ENG' && SUPPRESS === 'N') {
+        validCUIs.add(CUI);
+      }
+    });
+
+    rlConso.on('close', () => {
+      console.log(`✅ Loaded ${validCUIs.size.toLocaleString()} CUIs with LAT === 'ENG'`);
+
+      // Step 2: Load definitions from MRDEF.RRF for valid CUIs
+      const rlDef = readline.createInterface({ input: fs.createReadStream(defPath) });
+      rlDef.on('line', (line) => {
+        const cols = line.split('|');
+        const CUI = cols[0];
+        const DEF = cols[5];
+        if (!validCUIs.has(CUI)) return; // Skip non-English CUIs
+        if (!map.has(CUI)) map.set(CUI, []);
+        map.get(CUI).push(DEF);
+      });
+
+      rlDef.on('close', () => {
+        console.log(`✅ Loaded definitions for ${map.size.toLocaleString()} CUIs`);
+        resolve(map);
+      });
+    });
+  });
+}
+
 async function run() {
   const codePrefMap = await loadPreferredCodeNames(MRCONSO);
   const styMap = await loadSTY(MRSTY);
   const mrRankMap = await loadMRRank('MRRANK.RRF');
+  const defMap = await loadDefinitions('MRDEF.RRF', MRCONSO);
   const rl = readline.createInterface({ input: fs.createReadStream(MRCONSO) });
 
   let currentCUI = null, doc = null, codesMap = null;
@@ -89,8 +129,16 @@ async function run() {
 
     setPreferredNamesForCodes(codesMap);
     doc.codes = Array.from(codesMap.values());
+
+    // ⬇️ Add this line to flatten preferred name + all atom strings
+    doc.atom_text = [
+      doc.preferred_name,
+      ...doc.codes.flatMap(code => code.strings || [])
+    ].filter(Boolean).join(' ');
+
     bulkOps.push({ index: { _index: 'umls-cui', _id: doc.CUI } });
     bulkOps.push(doc);
+
     count++;
 
     if (bulkOps.length >= BATCH_SIZE * 2 || finalFlush) {
@@ -117,7 +165,8 @@ async function run() {
         CUI,
         preferred_name: null,
         STY: styMap.get(CUI) || [],
-        codes: []
+        codes: [],
+        definitions: defMap.get(CUI) || []
       };
       codesMap = new Map();
     }
