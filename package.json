@@ -11,7 +11,8 @@
   "license": "ISC",
   "dependencies": {
     "@elastic/elasticsearch": "^8.18.1",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "natural": "^8.0.1"
   },
   "devDependencies": {
     "serve": "^14.2.4"
