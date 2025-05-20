@@ -103,33 +103,31 @@ curl "http://localhost:3000/api/search?q=diabetes&page=0&size=100"
 
 ## 9. Ranking
 
-The system uses a three-phase approach to rank search results:
+The system uses a two-phase approach to rank and return UMLS concept search results:
 
 ### Phase 1: Exact Match Override (Backend)
 
-Before running the full search, the backend checks for exact string matches:
-- If `preferred_name` matches the query (case-insensitive), that result is returned first.
-- If no match, it checks if any `codes[].strings[]` value matches the query (case-insensitive).
-- These matches bypass normal scoring and are always returned at the top of the results list.
+Before running the main search, the backend checks for exact string matches against lowercase-normalized fields:
 
-### Phase 2: Candidate Retrieval (Elasticsearch)
+- If the query exactly matches `preferred_name`, `CUI`, or any `codes[].CODE` or `codes[].strings[]`, those results are marked as **exact matches**.
+- These matches are assigned a `_customScore` of `Infinity` and **always appear first**, regardless of Elasticsearch scoring.
 
-Elasticsearch retrieves additional candidate records using full-text search:
-- Fields `preferred_name` and `codes[].strings[]` use a custom `synonym_analyzer` with:
-  - Lowercasing
-  - Synonym expansion (from `synonyms.json`)
-  - Stop word removal
-  - Stemming
+### Phase 2: Candidate Retrieval + Re-Ranking (Elasticsearch + Backend)
 
-### Phase 3: Custom Re-Ranking (Backend)
+The system then performs a full-text search using Elasticsearch:
 
-Remaining results from the full search are passed to a custom scoring routine in the backend:
+- **Only the `atom_text` and `definitions` fields** are queried.
+- The query uses a mix of:
+  - `match_phrase` on `atom_text` (high boost)
+  - `match` with `operator: "and"` on `atom_text`
+  - `match` with fuzziness on `atom_text`
+  - `match` on `definitions` (lower boost)
 
-1. **Combined match score**
-- `combined score` = codes match count + (query word coverage ratio × coverage weight)
-- `codes match count`: number of times the raw query appears as a substring in any `codes[].strings[]`. This is the dominant factor.
-- `query word coverage ratio`: percentage of query words appearing in `preferred_name` or `codes[].strings[]`. This provides a smaller secondary boost.
-- `coverage weight` is set low (e.g., 0.3) to avoid outweighing codes matches.
+After retrieval:
+- Each hit is re-scored in the backend using **query stem coverage**:
+  - The query is tokenized and stemmed.
+  - The system computes the ratio of query stems that appear in the `atom_text` field of the result.
+  - This ratio becomes the `_customScore` for ranking.
 
-2. **Fallback**
-- If all scores are identical, the original Elasticsearch order is preserved.
+- Results are sorted descending by `_customScore`.
+
