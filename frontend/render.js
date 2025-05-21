@@ -20,10 +20,14 @@ export function renderPage() {
     const leftCol = container.querySelector('.left-column');
     leftCol.appendChild(renderCUIs(window.pages));
 
-
-
     resultsDiv.innerHTML = '';
     resultsDiv.appendChild(container);
+
+    // Debugging logs
+    console.log(`📊 Total Hits: ${window.totalHits}`);
+    console.log(`📄 Current Page: ${window.currentPageIndex + 1}`);
+    console.log(`📋 Results on Page: ${window.pages.length}`);
+    console.log(`📍 Showing results ${pageStart}–${pageEnd}`);
 
     document.querySelectorAll('.result-row').forEach(row => {
         row.addEventListener('click', () => {

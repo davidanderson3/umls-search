@@ -6,18 +6,9 @@ async function getExactMatches(lcQuery) {
     const exactTypes = [
         {
             label: 'preferred_name',
-            query: { term: { "preferred_name.lowercase_keyword": lcQuery } }
-        },
-        {
-            label: 'CUI',
-            query: { term: { "CUI.lowercase_keyword": lcQuery } }
-        },
-        {
-            label: 'codes.CODE',
             query: {
-                nested: {
-                    path: "codes",
-                    query: { term: { "codes.CODE.lowercase_keyword": lcQuery } }
+                term: {
+                    "preferred_name.lowercase_keyword": lcQuery
                 }
             }
         },
@@ -26,7 +17,11 @@ async function getExactMatches(lcQuery) {
             query: {
                 nested: {
                     path: "codes",
-                    query: { term: { "codes.strings.lowercase_keyword": lcQuery } }
+                    query: {
+                        term: {
+                            "codes.strings.lowercase_keyword": lcQuery
+                        }
+                    }
                 }
             }
         }
@@ -39,9 +34,11 @@ async function getExactMatches(lcQuery) {
             _source: ['preferred_name', 'CUI', 'STY', 'codes'],
             query
         });
+
         const newHits = result.hits.hits.filter(
             hit => !exactMatchDocs.find(doc => doc._id === hit._id)
         );
+
         if (newHits.length) {
             exactMatchDocs.push(...newHits);
         }
