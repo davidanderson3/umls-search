@@ -13,7 +13,15 @@
     <form id="searchForm">
         <input id="query" placeholder="Enter search term..." required autocomplete="off">
         <button type="submit">Search</button>
+        <label>
+            <input type="checkbox" id="fuzzyToggle">
+            Enable Fuzzy Search
+        </label>
     </form>
+    <div id="apiCallContainer">
+        <p id="apiCall"><a href="" target="_blank" rel="noopener noreferrer" id="apiCallLink"></a></p>
+    </div>
+
     <div id="paginationTop" style="display:none;">
         <button id="prevPageTop">⬅️ Previous</button>
         <button id="nextPageTop">Next ➡️</button>

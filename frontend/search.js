@@ -18,9 +18,22 @@ export function initState() {
 
 export async function doSearch(pageIndex = 0) {
     const q = prepareForSearch(getQueryInput());
+    const fuzzy = document.getElementById('fuzzyToggle')?.checked || false;
+    const page = pageIndex + 1;
+    const size = CONFIG.pageSize;
+
+    const relativeUrl = `${CONFIG.backendUrl}?q=${encodeURIComponent(q)}&page=${page}&size=${size}&fuzzy=${fuzzy}`;
+    const fullUrl = `http://localhost:3000${relativeUrl}`; // ⬅️ Full absolute URL
     const start = performance.now();
 
-    const res = await fetch(`${CONFIG.backendUrl}?q=${encodeURIComponent(q)}&page=${pageIndex + 1}&size=${CONFIG.pageSize}`);
+    // ✅ Show clickable API link
+    const apiCallLink = document.getElementById('apiCallLink');
+    if (apiCallLink) {
+        apiCallLink.href = fullUrl;
+        apiCallLink.textContent = fullUrl;
+    }
+
+    const res = await fetch(relativeUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
@@ -34,3 +47,6 @@ export async function doSearch(pageIndex = 0) {
 
     renderPage();
 }
+
+
+

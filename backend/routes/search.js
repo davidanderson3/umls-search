@@ -14,37 +14,42 @@ router.get('/search', async (req, res) => {
     const page = Math.max((parseInt(req.query.page, 10) || 1) - 1, 0);
     const from = page * size;
 
+    // Parse ?fuzzy=true (default: false)
+    const fuzzy = req.query.fuzzy === 'true';
+
     try {
-        console.log(`\n🔍 Query: "${query}"`);
+        console.log(`\n🔍 Query: "${query}" (fuzzy: ${fuzzy})`);
         console.log(`📄 Page: ${page + 1}, From: ${from}, Size: ${size}`);
 
         // Step 1: Get exact matches
         const exactMatches = await getExactMatches(query.toLowerCase());
-        exactMatches.forEach(hit => hit.matchType = 'exact');
-        exactMatches.forEach(hit => hit._customScore = Infinity);
+        exactMatches.forEach(hit => {
+            hit.matchType = 'exact';
+            hit._customScore = Infinity;
+        });
         const exactCUIs = new Set(exactMatches.map(doc => doc._source.CUI));
 
         console.log(`\n🎯 EXACT MATCHES:`);
         exactMatches.forEach(hit => {
             console.log(`  ${hit._source?.preferred_name}  |  CUI: ${hit._source?.CUI}`);
         });
-
         console.log(`✅ Exact Matches Count: ${exactMatches.length}`);
         console.log(`✅ Unique CUIs from Exact Matches: ${exactCUIs.size}`);
 
-        // Step 2: Get fuzzy matches
+        // Step 2: Run full search with or without fuzziness
         const { scoredHits: fuzzyHitsRaw } = await runFullSearch({
             query,
-            exactCUIs
+            exactCUIs,
+            fuzzy
         });
         fuzzyHitsRaw.forEach(hit => hit.matchType = 'fuzzy');
         console.log(`✅ Scored Hits Count: ${fuzzyHitsRaw.length}`);
 
-        // Step 3: Combine all hits (exact + fuzzy)
+        // Step 3: Combine results
         const combinedHits = [...exactMatches, ...fuzzyHitsRaw];
         console.log(`✅ Combined Hits Count (before deduplication): ${combinedHits.length}`);
 
-        // Step 4: Deduplicate results
+        // Step 4: Deduplicate by CUI
         const dedupedMap = new Map();
         combinedHits.forEach((hit, index) => {
             const cui = hit._source?.CUI;
@@ -59,7 +64,7 @@ router.get('/search', async (req, res) => {
         const allResults = [...dedupedMap.values()];
         console.log(`✅ Deduplicated Hits Count: ${allResults.length}`);
 
-        // Step 5: Sort results
+        // Step 5: Sort (Infinity first, then score, then CUI)
         const sortedResults = allResults.sort((a, b) => {
             if (a._customScore === Infinity && b._customScore !== Infinity) return -1;
             if (b._customScore === Infinity && a._customScore !== Infinity) return 1;
@@ -76,11 +81,11 @@ router.get('/search', async (req, res) => {
 
         console.log(`✅ Sorted Results Count: ${sortedResults.length}`);
 
-        // Step 6: Paginate results AFTER sorting
+        // Step 6: Paginate
         const finalHits = sortedResults.slice(from, from + size);
         console.log(`✅ Final Hits Count for Page ${page + 1}: ${finalHits.length}`);
 
-        // Step 7: Send response
+        // Step 7: Respond
         res.json({
             total: sortedResults.length,
             results: finalHits
