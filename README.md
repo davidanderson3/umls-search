@@ -83,20 +83,21 @@ http://localhost:3000/api/search
 
 ### API Endpoint
 
-**GET** `/api/search?q=search_term&page=page_number&size=page_size`
+**GET** `/api/search?q=search_term&page=page_number&size=page_size&fuzzy=true|false`
 
 #### Parameters
 
 | Parameter | Type   | Required | Description |
-|----------|--------|----------|-------------|
-| q        | string | Yes      | Search term to query |
-| page     | int    | No       | Zero-based page index (default = 0) |
-| size     | int    | No       | Page size (default = 100) |
+|-----------|--------|----------|-------------|
+| `q`       | string | Yes      | Search term to query |
+| `page`    | int    | No       | One-based page index (default = 1) |
+| `size`    | int    | No       | Page size (default = 100) |
+| `fuzzy`   | bool   | No       | If `true`, enables fuzzy matching (default = `false`) |
 
 #### Example Request
 
 ```bash
-curl "http://localhost:3000/api/search?q=diabetes&page=0&size=100"
+curl "http://localhost:3000/api/search?q=diabetes&page=1&size=100&fuzzy=true"
 ```
 
 ---
@@ -107,27 +108,39 @@ The system uses a two-phase approach to rank and return UMLS concept search resu
 
 ### Phase 1: Exact Match Override (Backend)
 
-Before running the main search, the backend checks for exact string matches against lowercase-normalized fields:
+Before running the main search, the backend checks for **exact string matches** against lowercase-normalized fields:
 
-- If the query exactly matches `preferred_name`, `CUI`, or any `codes[].CODE` or `codes[].strings[]`, those results are marked as **exact matches**.
-- These matches are assigned a `_customScore` of `Infinity` and **always appear first**, regardless of Elasticsearch scoring.
+- `preferred_name.lowercase_keyword`
+- `CUI.lowercase_keyword`
+- `codes[].CODE.lowercase_keyword`
+- `codes[].strings[].lowercase_keyword`
 
-### Phase 2: Candidate Retrieval + Re-Ranking (Elasticsearch + Backend)
+If the query matches one of these fields **exactly**, those results:
 
-The system then performs a full-text search using Elasticsearch:
+- Are included at the **top of the result list**
+- Are labeled with `"matchType": "exact"`
+- Are assigned a `_customScore` of `Infinity` to force top placement
 
-- **Only the `atom_text` and `definitions` fields** are queried.
-- The query uses a mix of:
-  - `match_phrase` on `atom_text` (high boost)
-  - `match` with `operator: "and"` on `atom_text`
-  - `match` with fuzziness on `atom_text`
-  - `match` on `definitions` (lower boost)
+### Phase 2: Candidate Retrieval + Sorting (Elasticsearch)
 
-After retrieval:
-- Each hit is re-scored in the backend using **query stem coverage**:
-  - The query is tokenized and stemmed.
-  - The system computes the ratio of query stems that appear in the `atom_text` field of the result.
-  - This ratio becomes the `_customScore` for ranking.
+The backend performs a full-text search using Elasticsearch across the following fields:
 
-- Results are sorted descending by `_customScore`.
+- `atom_text` (concatenated synonyms and name strings)
+- `definitions`
 
+The query combines:
+
+- `match_phrase` on `atom_text` (high boost)
+- `match` with `operator: "and"` on `atom_text`
+- *(Optional)* `match` with `fuzziness` on `atom_text` — only if `fuzzy=true`
+- `match` on `definitions` (lower boost) *(if implemented)*
+
+The backend then:
+
+- Filters out any CUIs already returned by exact match
+- Assigns `_customScore = _score` from Elasticsearch
+- Tags each hit with `"matchType": "fuzzy"`
+- Combines results, deduplicates by CUI, and sorts:
+  1. Exact matches (`_customScore = Infinity`) first
+  2. Fuzzy matches, descending by `_customScore`
+  3. Tie-breaker: alphabetical by CUI
