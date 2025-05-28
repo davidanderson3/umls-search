@@ -7,6 +7,7 @@ function scoreHits(hits) {
     }));
 }
 
+
 function anyWordLongEnough(query, minLength = 6) {
     return query.split(/\s+/).some(word => word.length >= minLength);
 }

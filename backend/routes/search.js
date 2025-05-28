@@ -13,59 +13,39 @@ router.get('/search', async (req, res) => {
     const size = parseInt(req.query.size, 10) || 100;
     const page = Math.max((parseInt(req.query.page, 10) || 1) - 1, 0);
     const from = page * size;
-
-    // Parse ?fuzzy=true (default: false)
     const fuzzy = req.query.fuzzy === 'true';
 
     try {
         console.log(`\n🔍 Query: "${query}" (fuzzy: ${fuzzy})`);
         console.log(`📄 Page: ${page + 1}, From: ${from}, Size: ${size}`);
 
-        // Step 1: Get exact matches
+        // Step 1: Exact matches
         const exactMatches = await getExactMatches(query.toLowerCase());
         exactMatches.forEach(hit => {
             hit.matchType = 'exact';
             hit._customScore = Infinity;
         });
-        const exactCUIs = new Set(exactMatches.map(doc => doc._source.CUI));
+        const exactCUIs = new Set(exactMatches.map(doc => doc._source?.CUI));
 
-        console.log(`\n🎯 EXACT MATCHES:`);
-        exactMatches.forEach(hit => {
-            console.log(`  ${hit._source?.preferred_name}  |  CUI: ${hit._source?.CUI}`);
-        });
-        console.log(`✅ Exact Matches Count: ${exactMatches.length}`);
-        console.log(`✅ Unique CUIs from Exact Matches: ${exactCUIs.size}`);
-
-        // Step 2: Run full search with or without fuzziness
-        const { scoredHits: fuzzyHitsRaw } = await runFullSearch({
-            query,
-            exactCUIs,
-            fuzzy
-        });
+        // Step 2: Fuzzy or full-text search
+        const { scoredHits: fuzzyHitsRaw } = await runFullSearch({ query, exactCUIs, fuzzy });
         fuzzyHitsRaw.forEach(hit => hit.matchType = 'fuzzy');
-        console.log(`✅ Scored Hits Count: ${fuzzyHitsRaw.length}`);
 
-        // Step 3: Combine results
+        // Step 3: Combine and deduplicate
         const combinedHits = [...exactMatches, ...fuzzyHitsRaw];
-        console.log(`✅ Combined Hits Count (before deduplication): ${combinedHits.length}`);
 
-        // Step 4: Deduplicate by CUI
         const dedupedMap = new Map();
-        combinedHits.forEach((hit, index) => {
+        for (const hit of combinedHits) {
             const cui = hit._source?.CUI;
-            if (!cui) {
-                console.warn(`⚠️ Missing CUI for hit at index ${index}: ${JSON.stringify(hit)}`);
-            } else if (!dedupedMap.has(cui)) {
-                dedupedMap.set(cui, hit);
-            } else {
-                console.log(`🔄 Duplicate CUI found: ${cui} at index ${index}`);
+            const pname = hit._source?.preferred_name;
+            if (!cui || !pname) {
+                console.warn('⚠️ Skipping malformed hit:', JSON.stringify(hit, null, 2));
+                continue;
             }
-        });
-        const allResults = [...dedupedMap.values()];
-        console.log(`✅ Deduplicated Hits Count: ${allResults.length}`);
+            if (!dedupedMap.has(cui)) dedupedMap.set(cui, hit);
+        }
 
-        // Step 5: Sort (Infinity first, then score, then CUI)
-        const sortedResults = allResults.sort((a, b) => {
+        const sortedResults = Array.from(dedupedMap.values()).sort((a, b) => {
             if (a._customScore === Infinity && b._customScore !== Infinity) return -1;
             if (b._customScore === Infinity && a._customScore !== Infinity) return 1;
             const scoreDiff = b._customScore - a._customScore;
@@ -74,22 +54,40 @@ router.get('/search', async (req, res) => {
                 : (a._source?.CUI || '').localeCompare(b._source?.CUI || '');
         });
 
-        console.log(`\n🪄 TOP SORTED RESULTS:`);
-        sortedResults.slice(0, 5).forEach((hit, i) => {
-            console.log(`${i + 1}. [${hit.matchType}] ${hit._source?.preferred_name}  |  CUI: ${hit._source?.CUI}  |  Score: ${hit._customScore}`);
-        });
-
+        // Step 7: Respond
         console.log(`✅ Sorted Results Count: ${sortedResults.length}`);
 
-        // Step 6: Paginate
-        const finalHits = sortedResults.slice(from, from + size);
+        // Filter malformed hits BEFORE slicing
+        const validHits = sortedResults.filter(hit => {
+            const valid = hit && hit._source && typeof hit._source.CUI === 'string' && typeof hit._source.preferred_name === 'string';
+            if (!valid) {
+                console.warn('⚠️ Skipping malformed hit:', JSON.stringify(hit, null, 2));
+            }
+            return valid;
+        });
+
+        console.log(`✅ Valid Hits Count: ${validHits.length}`);
+
+        const finalHits = validHits.slice(from, from + size);
         console.log(`✅ Final Hits Count for Page ${page + 1}: ${finalHits.length}`);
 
-        // Step 7: Respond
         res.json({
-            total: sortedResults.length,
-            results: finalHits
+            total: validHits.length,
+            results: finalHits.map(hit => {
+                const s = hit._source || {};
+                return {
+                    CUI: s.CUI || null,
+                    preferred_name: typeof s.preferred_name === 'string' ? s.preferred_name : '',  // ⬅️ safeguard
+                    STY: Array.isArray(s.STY) ? s.STY : [],
+                    codes: Array.isArray(s.codes) ? s.codes : [],
+                    definitions: Array.isArray(s.definitions) ? s.definitions : [],
+                    matchType: hit.matchType || null,
+                    _customScore: hit._customScore || 0
+                };
+            })
+
         });
+
 
     } catch (err) {
         console.error("❌ BACKEND ERROR:", err);

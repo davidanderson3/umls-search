@@ -1,6 +1,7 @@
 const es = require('./client');
 
-async function getExactMatches(lcQuery) {
+async function getExactMatches(query) {
+    const lcQuery = query.toLowerCase(); // Normalize input query
     const exactMatchDocs = [];
 
     const exactTypes = [
@@ -13,6 +14,14 @@ async function getExactMatches(lcQuery) {
             }
         },
         {
+            label: 'CUI',
+            query: {
+                term: {
+                    "CUI.lowercase_keyword": lcQuery
+                }
+            }
+        },
+        {
             label: 'codes.strings',
             query: {
                 nested: {
@@ -20,6 +29,19 @@ async function getExactMatches(lcQuery) {
                     query: {
                         term: {
                             "codes.strings.lowercase_keyword": lcQuery
+                        }
+                    }
+                }
+            }
+        },
+        {
+            label: 'codes.CODE',
+            query: {
+                nested: {
+                    path: "codes",
+                    query: {
+                        term: {
+                            "codes.CODE.lowercase_keyword": lcQuery
                         }
                     }
                 }

@@ -39,8 +39,25 @@ export async function doSearch(pageIndex = 0) {
     const data = await res.json();
     const duration = (performance.now() - start) / 1000;
 
+    // Log the full API response
+    console.log('API Response:', data.results);
+
+    // Log malformed hits
+    const malformedHits = data.results.filter(hit => !hit.preferred_name || typeof hit.preferred_name !== 'string');
+    console.log('Malformed Hits:', malformedHits);
+
     window.totalHits = data.total;
-    window.pages = data.results;
+    window.pages = data.results
+        .filter(hit => hit !== null && hit !== undefined) // Ensure no null or undefined hits
+        .map(hit => ({
+            CUI: hit.CUI || null,
+            preferred_name: hit.preferred_name, // No safeguard needed
+            STY: Array.isArray(hit.STY) ? hit.STY : [],
+            codes: Array.isArray(hit.codes) ? hit.codes : [],
+            definitions: Array.isArray(hit.definitions) ? hit.definitions : [],
+            matchType: hit.matchType || null,
+            _customScore: hit._customScore || 0
+        }));
     window.totalPages = Math.ceil(data.total / CONFIG.pageSize);
     window.fetchTimeStack = [duration];
     window.currentPageIndex = pageIndex;

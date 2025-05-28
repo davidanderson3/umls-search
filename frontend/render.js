@@ -51,6 +51,14 @@ export function renderPage() {
     ['pagination', 'paginationTop'].forEach(id => {
         document.getElementById(id).style.display = 'block';
     });
+
+    window.pages.forEach(page => {
+        if (page && page.preferred_name) {
+            console.log(page.preferred_name); // Safeguard to ensure page exists
+        } else {
+            console.warn('Malformed page object:', page);
+        }
+    });
 }
 
 export function renderCUIs(hitsArr) {
@@ -61,22 +69,20 @@ export function renderCUIs(hitsArr) {
     const tbody = table.querySelector('tbody');
 
     hitsArr.forEach((hit, index) => {
-        const src = hit._source;
-
         const row = document.createElement('tr');
         row.classList.add('result-row');
         row.setAttribute('data-index', index);
 
-        const prefName = src.preferred_name || '';
+        const prefName = hit.preferred_name || ''; // Use hit directly
         const prefNameMatch = prepareForSearch(prefName) === queryExact;
-        const codesMatch = (src.codes || []).flatMap(c => c.strings || []).some(s => prepareForSearch(s) === queryExact);
+        const codesMatch = (hit.codes || []).flatMap(c => c.strings || []).some(s => prepareForSearch(s) === queryExact);
         const isExactMatch = prefNameMatch || codesMatch;
 
         row.innerHTML = `
             <td>${isExactMatch ? '✅' : ''}</td>
             <td>${escapeHtml(prefName)}</td>
-            <td><a href="https://uts.nlm.nih.gov/uts/umls/concept/${src.CUI}" target="_blank">${src.CUI}</a></td>
-            <td>${(src.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}</td>
+            <td><a href="https://uts.nlm.nih.gov/uts/umls/concept/${hit.CUI}" target="_blank">${hit.CUI || ''}</a></td>
+            <td>${(hit.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}</td>
         `;
 
         tbody.appendChild(row);
@@ -86,7 +92,7 @@ export function renderCUIs(hitsArr) {
 }
 
 export function renderDetails(hit) {
-    const src = hit._source;
+    const src = hit; // Use the hit object directly
     const queryWords = prepareForSearch(getQueryInput()).split(/\s+/);
 
     const template = document.getElementById('details-template');
