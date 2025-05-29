@@ -48,6 +48,24 @@ async function runFullSearch({ query, exactCUIs, fuzzy = false }) {
                     boost: 2
                 }
             }
+        },
+        // Definitions search
+        {
+            match_phrase: {
+                definitions: {
+                    query,
+                    boost: 1.5
+                }
+            }
+        },
+        {
+            match: {
+                definitions: {
+                    query,
+                    operator: "and",
+                    boost: 1
+                }
+            }
         }
     ];
 
