@@ -3,6 +3,8 @@ const readline = require('readline');
 const { Client } = require('@elastic/elasticsearch');
 const es = new Client({ node: 'http://127.0.0.1:9200' });
 
+const ensureSynonymAnalyzer = require('./elastic-index'); // ✅ Import index creation script
+
 const BATCH_SIZE = 500;
 const MRCONSO = 'MRCONSO.RRF';
 const MRSTY = 'MRSTY.RRF';
@@ -14,11 +16,10 @@ function loadPreferredCodeNames(path) {
 
     rl.on('line', (line) => {
       const cols = line.split('|');
-      const [CUI, LAT, TS, LUI, STT, SUI, ISPREF, AUI, SAUI, SCUI, SDUI, SAB, TTY, CODE, STR] = cols;
+      const [CUI, LAT, TS, , , , ISPREF, , , , , SAB, , CODE, STR] = cols;
       const SUPPRESS = cols[16];
       if (LAT !== 'ENG' || SUPPRESS !== 'N') return;
       if (TS !== 'P' || ISPREF !== 'Y') return;
-
       const key = `${SAB}|${CODE}`;
       if (!map.has(key)) map.set(key, STR);
     });
@@ -61,44 +62,67 @@ function loadMRRank(path) {
 
 async function loadDefinitions(defPath, consoPath) {
   return new Promise((resolve) => {
-    const map = new Map();
-    const validCUIs = new Set();
+    const validAUIs = new Set();
 
-    // Step 1: Load valid CUIs with `LAT === 'ENG'` from MRCONSO.RRF
+    // First pass: collect valid English, non-suppressed AUIs from MRCONSO
     const rlConso = readline.createInterface({ input: fs.createReadStream(consoPath) });
     rlConso.on('line', (line) => {
       const cols = line.split('|');
-      const CUI = cols[0];
-      const LAT = cols[1];
-      const SUPPRESS = cols[16];
+      const AUI = cols[7];  // 8th field
+      const LAT = cols[1];  // 2nd field
+      const SUPPRESS = cols[16]; // 17th field
       if (LAT === 'ENG' && SUPPRESS === 'N') {
-        validCUIs.add(CUI);
+        validAUIs.add(AUI);
       }
     });
 
     rlConso.on('close', () => {
-      console.log(`✅ Loaded ${validCUIs.size.toLocaleString()} CUIs with LAT === 'ENG'`);
+      console.log(`✅ Found ${validAUIs.size.toLocaleString()} English, non-suppressed AUIs`);
 
-      // Step 2: Load definitions from MRDEF.RRF for valid CUIs
+      const map = new Map(); // CUI -> Set of definitions
       const rlDef = readline.createInterface({ input: fs.createReadStream(defPath) });
+
       rlDef.on('line', (line) => {
         const cols = line.split('|');
-        const CUI = cols[0];
-        const DEF = cols[5];
-        if (!validCUIs.has(CUI)) return; // Skip non-English CUIs
-        if (!map.has(CUI)) map.set(CUI, []);
-        map.get(CUI).push(DEF);
+        const CUI = cols[0];   // 1st field
+        const AUI = cols[1];   // 2nd field
+        const DEF = cols[5];   // 6th field
+
+        if (!validAUIs.has(AUI)) return;
+
+        const cleaned = DEF.trim().replace(/\s+/g, ' ');
+        if (!map.has(CUI)) map.set(CUI, new Set());
+        map.get(CUI).add(cleaned);
       });
 
       rlDef.on('close', () => {
-        console.log(`✅ Loaded definitions for ${map.size.toLocaleString()} CUIs`);
-        resolve(map);
+        const finalMap = new Map();
+        for (const [cui, defSet] of map.entries()) {
+          finalMap.set(cui, [...defSet]);
+        }
+        console.log(`✅ Loaded definitions for ${finalMap.size.toLocaleString()} CUIs`);
+        resolve(finalMap);
       });
     });
+
+    rlConso.on('error', (err) => console.error('Error reading MRCONSO:', err));
   });
 }
 
 async function run() {
+  try {
+    await es.indices.delete({ index: 'umls-cui' });
+    console.log('🗑️ Deleted existing index: umls-cui');
+  } catch (err) {
+    if (err.meta?.statusCode === 404) {
+      console.log('ℹ️ Index does not exist yet: umls-cui');
+    } else {
+      throw err;
+    }
+  }
+
+  await ensureSynonymAnalyzer(); // ✅ Recreate index with mappings and synonym analyzer
+
   const codePrefMap = await loadPreferredCodeNames(MRCONSO);
   const styMap = await loadSTY(MRSTY);
   const mrRankMap = await loadMRRank('MRRANK.RRF');
@@ -109,7 +133,6 @@ async function run() {
   let count = 0;
   const bulkOps = [];
 
-  // Helper to set code preferred_name using MRRANK
   function setPreferredNamesForCodes(codesMap) {
     for (const code of codesMap.values()) {
       if (code._ranked.length > 0) {
@@ -126,28 +149,20 @@ async function run() {
 
   const flush = async (finalFlush = false) => {
     if (!doc) return;
-
     setPreferredNamesForCodes(codesMap);
     doc.codes = Array.from(codesMap.values());
-
-    // ⬇️ Add this line to flatten preferred name + all atom strings
     doc.atom_text = [
       doc.preferred_name,
       ...doc.codes.flatMap(code => code.strings || [])
     ].filter(Boolean).join(' ');
-
     bulkOps.push({ index: { _index: 'umls-cui', _id: doc.CUI } });
     bulkOps.push(doc);
-
     count++;
-
     if (bulkOps.length >= BATCH_SIZE * 2 || finalFlush) {
       await es.bulk({ body: bulkOps });
       bulkOps.length = 0;
       console.log(`📤 Indexed ${count.toLocaleString()} CUIs`);
     }
-
-    // Always reset after flush
     doc = null;
     codesMap = null;
   };
@@ -159,24 +174,30 @@ async function run() {
     if (LAT !== 'ENG' || SUPPRESS !== 'N') continue;
 
     if (CUI !== currentCUI) {
-      await flush();  // Flush the previous CUI
+      await flush();
       currentCUI = CUI;
+
+      const defs = defMap.get(CUI);
+
       doc = {
         CUI,
         preferred_name: null,
         STY: styMap.get(CUI) || [],
-        codes: [],
-        definitions: defMap.get(CUI) || []
+        codes: []
       };
+
+      if (Array.isArray(defs) && defs.length > 0) {
+        doc.definitions = defs;
+      }
+
       codesMap = new Map();
     }
 
-    // Preserve CUI preferred_name logic
+
     if (!doc.preferred_name && TS === 'P' && ISPREF === 'Y') {
       doc.preferred_name = STR;
     }
 
-    // Build codes map
     const key = `${SAB}|${CODE}`;
     if (!codesMap.has(key)) {
       codesMap.set(key, {
@@ -189,15 +210,11 @@ async function run() {
     }
     const codeObj = codesMap.get(key);
     codeObj.strings.push(STR);
-
-    // Store for ranking
     const rank = mrRankMap.get(`${SAB}|${TTY}`) ?? 9999;
     codeObj._ranked.push({ STR, rank });
   }
 
-  // Final flush after loop
   await flush(true);
-
   console.log(`✅ Finished indexing ${count.toLocaleString()} CUIs`);
 }
 

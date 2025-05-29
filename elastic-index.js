@@ -14,11 +14,16 @@ const es = new Client({
 });
 
 async function ensureSynonymAnalyzer() {
+    if (await es.indices.exists({ index: INDEX })) {
+        await es.indices.delete({ index: INDEX });
+        console.log(`🗑️ Deleted existing index: ${INDEX}`);
+    }
+
     const settingsBody = {
         analysis: {
             filter: {
                 custom_synonym_filter: {
-                    type: 'synonym_graph',
+                    type: 'synonym',
                     synonyms: synonymsText
                 }
             },
@@ -72,10 +77,13 @@ async function ensureSynonymAnalyzer() {
             analyzer: 'english',
             search_analyzer: 'synonym_analyzer',
             fields: {
-                keyword: { type: 'keyword' }
+                keyword: { type: 'keyword' },
+                no_synonyms: {
+                    type: 'text',
+                    analyzer: 'standard'
+                }
             }
         },
-
         codes: {
             type: 'nested',
             properties: {
@@ -115,31 +123,17 @@ async function ensureSynonymAnalyzer() {
         }
     };
 
-    const exists = await es.indices.exists({ index: INDEX });
+    await es.indices.create({
+        index: INDEX,
+        body: {
+            settings: settingsBody,
+            mappings: { properties: mappingProps }
+        }
+    });
 
-    if (!exists) {
-        await es.indices.create({
-            index: INDEX,
-            body: {
-                settings: settingsBody,
-                mappings: { properties: mappingProps }
-            }
-        });
-        console.log('✅ Created index with synonyms + lowercase keyword support');
-    } else {
-        await es.indices.close({ index: INDEX });
-        await es.indices.putSettings({ index: INDEX, body: settingsBody });
-        await es.indices.putMapping({ index: INDEX, body: { properties: mappingProps } });
-        await es.indices.open({ index: INDEX });
-        console.log('♻️  Updated index with synonyms + lowercase keyword support');
-    }
-
-    await es.indices.reloadSearchAnalyzers({ index: INDEX });
-    console.log('🔄 Reloaded search analyzers');
+    console.log('✅ Created index with synonyms + lowercase keyword support');
 }
 
-ensureSynonymAnalyzer().catch(err => {
-    console.error('Error ensuring synonym analyzer:', err);
-    process.exit(1);
-});
+
+module.exports = ensureSynonymAnalyzer;
 

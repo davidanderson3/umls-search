@@ -1,0 +1,6 @@
+broken, fracture
+kidney, renal
+lung, pulmonary
+heart, cardiac
+liver, hepatic
+stomach, gastric

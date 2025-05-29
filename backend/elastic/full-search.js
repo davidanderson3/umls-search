@@ -7,20 +7,60 @@ function scoreHits(hits) {
     }));
 }
 
-
 function anyWordLongEnough(query, minLength = 6) {
     return query.split(/\s+/).some(word => word.length >= minLength);
 }
 
 async function runFullSearch({ query, exactCUIs, fuzzy = false }) {
     const shouldQueries = [
-        { match_phrase: { atom_text: { query, boost: 5 } } },
-        { match: { atom_text: { query, operator: "and", boost: 3 } } }
+        // Favor exact user input (no synonym expansion)
+        {
+            match_phrase: {
+                "atom_text.no_synonyms": {
+                    query,
+                    boost: 6
+                }
+            }
+        },
+        {
+            match: {
+                "atom_text.no_synonyms": {
+                    query,
+                    operator: "and",
+                    boost: 4
+                }
+            }
+        },
+        // Synonym-expanded fallback
+        {
+            match_phrase: {
+                atom_text: {
+                    query,
+                    boost: 3
+                }
+            }
+        },
+        {
+            match: {
+                atom_text: {
+                    query,
+                    operator: "and",
+                    boost: 2
+                }
+            }
+        }
     ];
 
     if (fuzzy && anyWordLongEnough(query)) {
         shouldQueries.push({
-            match: { atom_text: { query, operator: "and", fuzziness: "1", boost: 1 } }
+            match: {
+                atom_text: {
+                    query,
+                    operator: "and",
+                    fuzziness: "1",
+                    boost: 1
+                }
+            }
         });
     }
 
