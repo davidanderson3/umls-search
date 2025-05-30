@@ -51,7 +51,7 @@ node elastic-index.js
 node --max-old-space-size=8192 load.js
 ```
 
-load.js takes a few minutes. It's loading MRCONSO.RRF and MRSTY.RRF. 
+load.js takes a few minutes. It's loading MRCONSO.RRF (Concepts, Names, Codes), MRSTY.RRF (Semantic Types), and MRDEF.RRF (Definitions). 
 
 ---
 
@@ -133,7 +133,7 @@ The query combines:
 - `match_phrase` on `atom_text` (high boost)
 - `match` with `operator: "and"` on `atom_text`
 - *(Optional)* `match` with `fuzziness` on `atom_text` — only if `fuzzy=true`
-- `match` on `definitions` (lower boost) *(if implemented)*
+- `match` on `definitions` (lower boost) 
 
 The backend then:
 
