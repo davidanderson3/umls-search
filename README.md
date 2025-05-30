@@ -16,7 +16,7 @@ Make sure you have the following installed and running:
 ## 2. Install Node Dependencies
 
 ```bash
-cd umls-helper/umls-search    # enter the project subfolder
+cd umls-search                # enter the project subfolder
 npm install                   # install @elastic/elasticsearch, etc
 ```
 
@@ -72,9 +72,9 @@ Use the web interface to search:
 http://localhost:3000/
 ```
 
-or query via API:
+or query via API, for example:
 ```
-http://localhost:3000/api/search
+http://localhost:3000/api/search?q=renal%20tubular%20acidosis&page=1&size=100&fuzzy=true
 ```
 
 ---
