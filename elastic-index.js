@@ -8,8 +8,9 @@ const synonymsText = fs.readFileSync(SYNONYM_FILE_PATH, 'utf-8').split('\n').map
 
 
 const INDEX = 'umls-cui';
+const ES_URL = process.env.ES_URL || 'http://127.0.0.1:9200';
 const es = new Client({
-    node: 'http://127.0.0.1:9200',
+    node: ES_URL,
     compatibility: { version: 8 }
 });
 
@@ -20,6 +21,8 @@ async function ensureSynonymAnalyzer() {
     }
 
     const settingsBody = {
+        number_of_shards: 1,
+        number_of_replicas: 0,
         analysis: {
             filter: {
                 custom_synonym_filter: {
@@ -136,4 +139,3 @@ async function ensureSynonymAnalyzer() {
 
 
 module.exports = ensureSynonymAnalyzer;
-

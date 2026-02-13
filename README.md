@@ -6,7 +6,7 @@ These are really simple scripts to help you search the UMLS locally on your mach
 Make sure you have the following installed and running:
 
 1. **Node.js v18+ & npm**  
-2. **Elasticsearch 8.x**
+2. **Elasticsearch 8.x** (tested on **8.19.5**)
 3. **UMLS data files**  
    - Get a UMLS license: [https://uts.nlm.nih.gov/uts/signup-login](https://uts.nlm.nih.gov/uts/signup-login).
    - Once approved, download UMLS Metathesaurus Full Subset from [https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html](https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html), which includes **MRCONSO.RRF**, **MRSTY.RRF**, and **MRRANK.RRF**
@@ -22,14 +22,32 @@ npm install                   # install @elastic/elasticsearch, etc
 
 ---
 
-## 3. Copy UMLS RRF Files
+## 3. Point to UMLS RRF Files
 
-Place your downloaded **MRCONSO.RRF**, **MRSTY.RRF**, and **MRRANK.RRF** into the **same directory** as `load.js` (i.e. `umls-helper/umls-search/`):
+Keep the UMLS RRF files wherever they live and pass their locations to `load.js`.
+
+### Option A: Point to a directory
 
 ```bash
-# from wherever you downloaded the files:
-cp /path/to/MRCONSO.RRF /path/to/umls-helper/umls-search/
-cp /path/to/MRSTY.RRF  /path/to/umls-helper/umls-search/
+export UMLS_RRF_DIR=/path/to/umls/2024AB/META
+node --max-old-space-size=8192 load.js --rrf-dir /path/to/umls/2025AB/META
+```
+
+### Option B: Point to each file explicitly
+
+```bash
+export MRCONSO_PATH=/path/to/umls/2024AB/META/MRCONSO.RRF
+export MRSTY_PATH=/path/to/umls/2024AB/META/MRSTY.RRF
+export MRRANK_PATH=/path/to/umls/2024AB/META/MRRANK.RRF
+export MRDEF_PATH=/path/to/umls/2024AB/META/MRDEF.RRF
+node --max-old-space-size=8192 load.js
+```
+
+You can also pass paths via CLI flags:
+
+```bash
+node --max-old-space-size=8192 load.js \
+  --rrf-dir /path/to/umls/2024AB/META
 ```
 
 ---

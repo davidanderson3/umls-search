@@ -1,13 +1,53 @@
 const fs = require('fs');
+const path = require('path');
 const readline = require('readline');
 const { Client } = require('@elastic/elasticsearch');
-const es = new Client({ node: 'http://127.0.0.1:9200' });
+const ES_URL = process.env.ES_URL || 'http://127.0.0.1:9200';
+const es = new Client({
+  node: ES_URL,
+  requestTimeout: parseInt(process.env.ES_REQUEST_TIMEOUT_MS || '120000', 10),
+  maxRetries: parseInt(process.env.ES_MAX_RETRIES || '3', 10),
+});
 
 const ensureSynonymAnalyzer = require('./elastic-index'); // ✅ Import index creation script
 
 const BATCH_SIZE = 500;
-const MRCONSO = 'MRCONSO.RRF';
-const MRSTY = 'MRSTY.RRF';
+
+function getArgValue(flag) {
+  const idx = process.argv.indexOf(flag);
+  if (idx === -1) return null;
+  const value = process.argv[idx + 1];
+  if (!value || value.startsWith('--')) {
+    throw new Error(`Missing value for ${flag}`);
+  }
+  return value;
+}
+
+const RRF_DIR =
+  getArgValue('--rrf-dir') ||
+  process.env.UMLS_RRF_DIR ||
+  process.env.UMLS_RRF_PATH ||
+  null;
+
+const MRCONSO =
+  getArgValue('--mrconso') ||
+  process.env.MRCONSO_PATH ||
+  (RRF_DIR ? path.join(RRF_DIR, 'MRCONSO.RRF') : 'MRCONSO.RRF');
+
+const MRSTY =
+  getArgValue('--mrsty') ||
+  process.env.MRSTY_PATH ||
+  (RRF_DIR ? path.join(RRF_DIR, 'MRSTY.RRF') : 'MRSTY.RRF');
+
+const MRRANK =
+  getArgValue('--mrrank') ||
+  process.env.MRRANK_PATH ||
+  (RRF_DIR ? path.join(RRF_DIR, 'MRRANK.RRF') : 'MRRANK.RRF');
+
+const MRDEF =
+  getArgValue('--mrdef') ||
+  process.env.MRDEF_PATH ||
+  (RRF_DIR ? path.join(RRF_DIR, 'MRDEF.RRF') : 'MRDEF.RRF');
 
 function loadPreferredCodeNames(path) {
   return new Promise((resolve) => {
@@ -122,11 +162,16 @@ async function run() {
   }
 
   await ensureSynonymAnalyzer(); // ✅ Recreate index with mappings and synonym analyzer
+  await es.indices.putSettings({
+    index: 'umls-cui',
+    body: { index: { refresh_interval: '-1' } }
+  });
+  console.log('⚡ Disabled refresh_interval for bulk load');
 
   const codePrefMap = await loadPreferredCodeNames(MRCONSO);
   const styMap = await loadSTY(MRSTY);
-  const mrRankMap = await loadMRRank('MRRANK.RRF');
-  const defMap = await loadDefinitions('MRDEF.RRF', MRCONSO);
+  const mrRankMap = await loadMRRank(MRRANK);
+  const defMap = await loadDefinitions(MRDEF, MRCONSO);
   const rl = readline.createInterface({ input: fs.createReadStream(MRCONSO) });
 
   let currentCUI = null, doc = null, codesMap = null;
@@ -216,6 +261,16 @@ async function run() {
 
   await flush(true);
   console.log(`✅ Finished indexing ${count.toLocaleString()} CUIs`);
+
+  await es.indices.putSettings({
+    index: 'umls-cui',
+    body: { index: { refresh_interval: '1s' } }
+  });
+  console.log('✅ Restored refresh_interval to 1s');
+
+  console.log('🔧 Forcemerging index to 1 segment...');
+  await es.indices.forcemerge({ index: 'umls-cui', max_num_segments: 1 });
+  console.log('✅ Forcemerge complete');
 }
 
 run().catch(err => {
