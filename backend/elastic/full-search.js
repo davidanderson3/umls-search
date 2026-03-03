@@ -1,4 +1,5 @@
 const es = require('./client');
+const { ES_INDEX } = require('../../elastic-config');
 
 function scoreHits(hits) {
     return hits.map(hit => ({
@@ -83,7 +84,7 @@ async function runFullSearch({ query, exactCUIs, fuzzy = false }) {
     }
 
     const result = await es.search({
-        index: 'umls-cui',
+        index: ES_INDEX,
         from: 0,
         size: 1000,
         track_total_hits: true,

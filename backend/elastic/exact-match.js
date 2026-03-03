@@ -1,4 +1,5 @@
 const es = require('./client');
+const { ES_INDEX } = require('../../elastic-config');
 
 async function getExactMatches(query) {
     const lcQuery = query.toLowerCase(); // Normalize input query
@@ -51,7 +52,7 @@ async function getExactMatches(query) {
 
     for (const { label, query } of exactTypes) {
         const result = await es.search({
-            index: 'umls-cui',
+            index: ES_INDEX,
             size: 100,
             _source: ['preferred_name', 'CUI', 'STY', 'codes'],
             query

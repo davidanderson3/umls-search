@@ -2,13 +2,10 @@
 const { Client } = require('@elastic/elasticsearch');
 const fs = require('fs');
 const path = require('path');
+const { ES_INDEX: INDEX, ES_URL } = require('./elastic-config');
 
 const SYNONYM_FILE_PATH = path.join(__dirname, 'synonyms.txt');
 const synonymsText = fs.readFileSync(SYNONYM_FILE_PATH, 'utf-8').split('\n').map(s => s.trim()).filter(Boolean);
-
-
-const INDEX = 'umls-cui';
-const ES_URL = process.env.ES_URL || 'http://127.0.0.1:9200';
 const es = new Client({
     node: ES_URL,
     compatibility: { version: 8 }

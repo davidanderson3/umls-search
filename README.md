@@ -66,7 +66,14 @@ ELASTICSEARCH_DIRECTORY/bin/elasticsearch
 
 ```bash
 node elastic-index.js
-node --max-old-space-size=8192 load.js
+node --max-old-space-size=8192 load.js --rrf-dir /path/to/umls/2025AB/META
+```
+
+By default these scripts create and load the `umls-cui` index. To target a different index name:
+
+```bash
+ES_INDEX=my-umls-index node elastic-index.js
+ES_INDEX=my-umls-index node --max-old-space-size=8192 load.js --rrf-dir /path/to/umls/2025AB/META
 ```
 
 load.js takes a few minutes. It's loading MRCONSO.RRF (Concepts, Names, Codes), MRSTY.RRF (Semantic Types), and MRDEF.RRF (Definitions). 
@@ -81,6 +88,18 @@ This serves both the frontend and API together:
 node backend/server.js
 ```
 
+If your Elasticsearch data already exists under a different index or alias, point the backend at it:
+
+```bash
+ES_INDEX=uts_release_2025ab node backend/server.js
+```
+
+If port `3000` is already in use, run it on another port:
+
+```bash
+PORT=3001 node backend/server.js
+```
+
 ---
 
 ## 7. Search
@@ -90,9 +109,19 @@ Use the web interface to search:
 http://localhost:3000/
 ```
 
+If you started the server with `PORT=3001`, use:
+```
+http://localhost:3001/
+```
+
 or query via API, for example:
 ```
 http://localhost:3000/api/search?q=renal%20tubular%20acidosis&page=1&size=100&fuzzy=true
+```
+
+Or on a different port:
+```
+http://localhost:3001/api/search?q=renal%20tubular%20acidosis&page=1&size=100&fuzzy=true
 ```
 
 ---
@@ -117,6 +146,8 @@ http://localhost:3000/api/search?q=renal%20tubular%20acidosis&page=1&size=100&fu
 ```bash
 curl "http://localhost:3000/api/search?q=diabetes&page=1&size=100&fuzzy=true"
 ```
+
+If needed, replace `3000` with the port you started the server on.
 
 ---
 

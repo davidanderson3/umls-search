@@ -23,7 +23,7 @@ export async function doSearch(pageIndex = 0) {
     const size = CONFIG.pageSize;
 
     const relativeUrl = `${CONFIG.backendUrl}?q=${encodeURIComponent(q)}&page=${page}&size=${size}&fuzzy=${fuzzy}`;
-    const fullUrl = `http://localhost:3000${relativeUrl}`; // ⬅️ Full absolute URL
+    const fullUrl = `${window.location.origin}${relativeUrl}`;
     const start = performance.now();
 
     // ✅ Show clickable API link
@@ -64,6 +64,5 @@ export async function doSearch(pageIndex = 0) {
 
     renderPage();
 }
-
 
 

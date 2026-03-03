@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const getExactMatches = require('../elastic/exact-match');
 const runFullSearch = require('../elastic/full-search');
+const { ES_INDEX } = require('../../elastic-config');
 
 router.get('/search', async (req, res) => {
     const rawQuery = (req.query.q || '').trim();
@@ -91,6 +92,17 @@ router.get('/search', async (req, res) => {
 
     } catch (err) {
         console.error("❌ BACKEND ERROR:", err);
+        if (err.meta?.body?.error?.type === 'index_not_found_exception') {
+            return res.status(500).json({
+                error: 'Search failed',
+                details: {
+                    message: `Elasticsearch index "${ES_INDEX}" was not found`,
+                    hint: `Set ES_INDEX to an existing alias/index or run load.js to create "${ES_INDEX}"`,
+                    elasticsearch: err.meta.body.error
+                }
+            });
+        }
+
         res.status(500).json({
             error: 'Search failed',
             details: err.meta?.body?.error || err.message

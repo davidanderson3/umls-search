@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { Client } = require('@elastic/elasticsearch');
-const ES_URL = process.env.ES_URL || 'http://127.0.0.1:9200';
+const { ES_INDEX, ES_URL } = require('./elastic-config');
 const es = new Client({
   node: ES_URL,
   requestTimeout: parseInt(process.env.ES_REQUEST_TIMEOUT_MS || '120000', 10),
@@ -48,6 +48,29 @@ const MRDEF =
   getArgValue('--mrdef') ||
   process.env.MRDEF_PATH ||
   (RRF_DIR ? path.join(RRF_DIR, 'MRDEF.RRF') : 'MRDEF.RRF');
+
+function assertReadableFile(label, filePath) {
+  if (!fs.existsSync(filePath)) {
+    const resolvedPath = path.resolve(filePath);
+    throw new Error(
+      [
+        `Missing required UMLS file: ${label}`,
+        `Resolved path: ${resolvedPath}`,
+        'Provide file locations with one of:',
+        '  node --max-old-space-size=8192 load.js --rrf-dir /path/to/UMLS/META',
+        '  export UMLS_RRF_DIR=/path/to/UMLS/META',
+        `  export ${label}_PATH=/path/to/${label}.RRF`
+      ].join('\n')
+    );
+  }
+}
+
+function validateInputFiles() {
+  assertReadableFile('MRCONSO', MRCONSO);
+  assertReadableFile('MRSTY', MRSTY);
+  assertReadableFile('MRRANK', MRRANK);
+  assertReadableFile('MRDEF', MRDEF);
+}
 
 function loadPreferredCodeNames(path) {
   return new Promise((resolve) => {
@@ -150,12 +173,14 @@ async function loadDefinitions(defPath, consoPath) {
 }
 
 async function run() {
+  validateInputFiles();
+
   try {
-    await es.indices.delete({ index: 'umls-cui' });
-    console.log('🗑️ Deleted existing index: umls-cui');
+    await es.indices.delete({ index: ES_INDEX });
+    console.log(`🗑️ Deleted existing index: ${ES_INDEX}`);
   } catch (err) {
     if (err.meta?.statusCode === 404) {
-      console.log('ℹ️ Index does not exist yet: umls-cui');
+      console.log(`ℹ️ Index does not exist yet: ${ES_INDEX}`);
     } else {
       throw err;
     }
@@ -163,7 +188,7 @@ async function run() {
 
   await ensureSynonymAnalyzer(); // ✅ Recreate index with mappings and synonym analyzer
   await es.indices.putSettings({
-    index: 'umls-cui',
+    index: ES_INDEX,
     body: { index: { refresh_interval: '-1' } }
   });
   console.log('⚡ Disabled refresh_interval for bulk load');
@@ -200,7 +225,7 @@ async function run() {
       doc.preferred_name,
       ...doc.codes.flatMap(code => code.strings || [])
     ].filter(Boolean).join(' ');
-    bulkOps.push({ index: { _index: 'umls-cui', _id: doc.CUI } });
+    bulkOps.push({ index: { _index: ES_INDEX, _id: doc.CUI } });
     bulkOps.push(doc);
     count++;
     if (bulkOps.length >= BATCH_SIZE * 2 || finalFlush) {
@@ -263,13 +288,13 @@ async function run() {
   console.log(`✅ Finished indexing ${count.toLocaleString()} CUIs`);
 
   await es.indices.putSettings({
-    index: 'umls-cui',
+    index: ES_INDEX,
     body: { index: { refresh_interval: '1s' } }
   });
   console.log('✅ Restored refresh_interval to 1s');
 
   console.log('🔧 Forcemerging index to 1 segment...');
-  await es.indices.forcemerge({ index: 'umls-cui', max_num_segments: 1 });
+  await es.indices.forcemerge({ index: ES_INDEX, max_num_segments: 1 });
   console.log('✅ Forcemerge complete');
 }
 
