@@ -4,6 +4,7 @@
   "description": "",
   "main": "load.js",
   "scripts": {
+    "mine:definition-queries": "node scripts/mine-definition-helpful-queries.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

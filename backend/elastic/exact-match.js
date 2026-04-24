@@ -54,16 +54,22 @@ async function getExactMatches(query) {
         const result = await es.search({
             index: ES_INDEX,
             size: 100,
-            _source: ['preferred_name', 'CUI', 'STY', 'codes'],
+            _source: ['preferred_name', 'CUI', 'STY', 'codes', 'related_concepts'],
             query
         });
 
-        const newHits = result.hits.hits.filter(
-            hit => !exactMatchDocs.find(doc => doc._id === hit._id)
-        );
+        for (const hit of result.hits.hits) {
+            const existingDoc = exactMatchDocs.find(doc => doc._id === hit._id);
+            if (existingDoc) {
+                existingDoc._exactMatchLabels = Array.from(new Set([
+                    ...(existingDoc._exactMatchLabels || []),
+                    label
+                ]));
+                continue;
+            }
 
-        if (newHits.length) {
-            exactMatchDocs.push(...newHits);
+            hit._exactMatchLabels = [label];
+            exactMatchDocs.push(hit);
         }
     }
 

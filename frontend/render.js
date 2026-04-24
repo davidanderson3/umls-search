@@ -3,14 +3,19 @@ import { escapeHtml, getQueryInput, prepareForSearch } from './utils.js';
 export function renderPage() {
     const resultsDiv = document.getElementById('results');
     const fetchTime = window.fetchTimeStack[0];
+    const relatedOnly = document.getElementById('relatedOnlyToggle')?.checked || false;
+    const includeDefinitions = document.getElementById('definitionsToggle')?.checked ?? true;
 
-    const pageStart = window.currentPageIndex * 100 + 1;
-    const pageEnd = Math.min(pageStart + window.pages.length - 1, window.totalHits);
+    const hasResults = window.totalHits > 0;
+    const pageStart = hasResults ? (window.currentPageIndex * 100 + 1) : 0;
+    const pageEnd = hasResults ? Math.min(pageStart + window.pages.length - 1, window.totalHits) : 0;
 
     const container = document.createElement('div');
 
     container.innerHTML = `
         <div style="font-style:italic;">Loaded page ${window.currentPageIndex + 1} in ${fetchTime.toFixed(2)} s</div>
+        ${includeDefinitions ? '' : '<div><strong>Mode:</strong> definition matches excluded</div>'}
+        ${relatedOnly ? '<div><strong>Mode:</strong> relation matches only</div>' : ''}
         <div>Showing results ${pageStart}–${pageEnd} of ${window.totalHits}</div>
         <div class="two-column-layout">
             <div class="left-column"></div>
@@ -83,6 +88,7 @@ export function renderCUIs(hitsArr) {
             <td>${escapeHtml(prefName)}</td>
             <td><a href="https://uts.nlm.nih.gov/uts/umls/concept/${hit.CUI}" target="_blank">${hit.CUI || ''}</a></td>
             <td>${(hit.STY || []).map(sty => `<span class="tag">${escapeHtml(sty)}</span>`).join(' ')}</td>
+            <td>${escapeHtml(hit.matchType || '')}</td>
         `;
 
         tbody.appendChild(row);
@@ -108,9 +114,20 @@ export function renderDetails(hit) {
 
     const namesDiv = clone.querySelector('.details-names');
     const defsDiv = clone.querySelector('.details-defs');
+    const relatedDiv = clone.querySelector('.details-related');
+    const relationInfoDiv = document.createElement('div');
 
     const names = (src.codes || []).flatMap(c => c.strings || []);
     const defs = src.definitions || [];
+    const related = src.related_concepts || [];
+
+    if (src.matchType === 'related') {
+        const relationLabels = Array.isArray(src.relatedBy) && src.relatedBy.length
+            ? src.relatedBy.map(rel => escapeHtml(rel)).join(', ')
+            : 'related';
+        relationInfoDiv.innerHTML = `<p><strong>Matched Via Relation:</strong> <a href="https://uts.nlm.nih.gov/uts/umls/concept/${src.relatedTo}" target="_blank">${escapeHtml(src.relatedTo || '')}</a><br><small>${relationLabels}</small></p>`;
+        clone.querySelector('.details').insertBefore(relationInfoDiv, clone.querySelector('.details-sty').parentElement.nextSibling);
+    }
 
     namesDiv.innerHTML = names.length
         ? names.map(n => `<p>${highlightQueryStems(n, queryWords)}</p>`).join('')
@@ -118,6 +135,19 @@ export function renderDetails(hit) {
 
     defsDiv.innerHTML = defs.length
         ? defs.map(d => `<p>${highlightQueryStems(d, queryWords)}</p>`).join('')
+        : '<p>(none)</p>';
+
+    relatedDiv.innerHTML = related.length
+        ? related.map(item => {
+            const name = item.preferred_name || item.CUI || '(unnamed concept)';
+            const relationText = Array.isArray(item.relations) && item.relations.length
+                ? item.relations.slice(0, 3).map(rel => escapeHtml(rel)).join(', ')
+                : 'related';
+            const vocabularyText = item.vocabulary_count === 1
+                ? '1 vocabulary'
+                : `${item.vocabulary_count || 0} vocabularies`;
+            return `<p><a href="https://uts.nlm.nih.gov/uts/umls/concept/${item.CUI}" target="_blank">${escapeHtml(name)}</a> (${escapeHtml(item.CUI || '')})<br><small>score ${Number(item.score || 0).toFixed(2)}; ${vocabularyText}; ${relationText}</small></p>`;
+        }).join('')
         : '<p>(none)</p>';
 
     return clone;
@@ -135,4 +165,3 @@ function highlightQueryStems(text, queryWords) {
         return match ? `<span class="highlight">${escapeHtml(word)}</span>` : escapeHtml(word);
     }).join('');
 }
-

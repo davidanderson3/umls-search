@@ -1,0 +1,102 @@
+h1. Why Definitions Matter in UMLS Search
+
+I found that the official UMLS API search is driven mainly by concept names, synonyms, and code-linked strings. In many cases that works well, especially when a user searches with terminology already present in the Metathesaurus. Adding definitions does not fundamentally change the behavior of search, but it does provide a small, measurable recall improvement for some short descriptive queries that do not line up cleanly with the canonical label.
+
+To measure the effect of indexing definitions, I compared two versions of the same search stack:
+
+* *Definition-aware search*: the local Elasticsearch index with *definitions* included in ranking.
+* *Name/synonym-only baseline*: the same query logic with definition clauses removed. This approximates the behavior of a search system that cannot retrieve on MRDEF content.
+
+The examples below show the pattern I wanted to isolate: indexing definitions can recover some otherwise-missed descriptive queries, producing a modest but measurable recall gain.
+
+h2. What Changes
+
+* With definitions indexed, descriptive phrase queries can match the explanatory language used in MRDEF.
+* Without definitions, some of those same queries have weaker lexical overlap with preferred names or synonyms.
+* The effect is not dramatic, but it is measurable.
+* The clearest gains appear for short clinical descriptions, especially phrases describing a condition, abnormality, inflammation, retention, or loss.
+
+h2. Method
+
+I used a simple ablation study to identify queries where indexing UMLS definitions materially improves search.
+
+# Start with the same local UMLS search index and ranking pipeline in two modes:
+#* *Definition-aware search*: normal ranking with MRDEF-derived definition text indexed and queried.
+#* *Name/synonym-only baseline*: the same search logic, but with the definition clauses removed.
+# Mine candidate queries from concept definitions rather than from preferred names.
+# Filter those candidates aggressively so they look like plausible user-entered English queries.
+# Run each query against both systems.
+# Compare the returned result lists with definitions versus without definitions.
+# Keep only cases where definitions clearly help.
+
+h3. Candidate Query Generation
+
+Candidate queries were generated from indexed UMLS definition text, not from preferred names or synonyms. My goal was to find short descriptive phrases that a user might type when they do not know the canonical medical term.
+
+The mining step applied several filters:
+
+* English only
+* Maximum of 4 words
+* Prefer short clinical-description phrases
+* Reject HTML-heavy definitions
+* Reject non-clinical semantic types
+* Reject awkward fragments, metadata-like text, and obviously incomplete phrases
+
+h3. Ranking Comparison
+
+For each candidate query, we searched the same index twice:
+
+* *With definitions*: definition fields included in ranking
+* *Without definitions*: definition fields excluded from ranking
+
+I then compared the returned result lists to see whether the query produced a materially better concept match when definitions were enabled.
+
+h3. Inclusion Criteria
+
+Examples were kept when they met all of the following:
+
+* The query returned a clearly relevant concept when definitions were enabled
+* The same query returned no result or a materially worse result without definitions
+* The query was short, readable, and plausible as a user-entered search
+* The query was not just a duplicate or awkward fragment
+
+h3. Interpretation
+
+This method isolates the contribution of definition text. Because the ranking logic is otherwise unchanged, any improvement in retrieval can be attributed to the presence of definitions in the searchable index.
+
+h2. Example Queries
+
+The table below shows the live top 3 returned concepts for each query in both modes. I kept only examples where the result list changed in a meaningful way when definitions were enabled.
+
+|| Query || Top 3 With Definitions || Top 3 Without Definitions || Why Definitions Help ||
+| absence of hydrochloric acid | #1 Achlorhydria (C0001075) | No result returned | The query is a plain-language description that only becomes retrievable when the definition text is searchable. |
+| accumulation of lactic acid | #1 Acidosis, Lactic (C0001125)<br>#2 MITOCHONDRIAL DNA DEPLETION SYNDROME 9 (ENCEPHALOMYOPATHIC TYPE WITH METHYLMALONIC ACIDURIA) (C3151476)<br>#3 Pyruvate Carboxylase Deficiency Disease (C0034341) | No result returned | The returned concept depends on wording found in the definition rather than the formal label. |
+| absence of blood circulation | #1 Ischemia (C0022116)<br>#2 Chronic absent circulating IgE (C5398006)<br>#3 Drug-induced neutropenia (C0272178) | No result returned | The user phrase describes the physiology directly instead of naming the canonical term. |
+| blood levels of dapsone | #1 Acedapsone (C0000949) | No result returned | The description of the drug’s long-term effect is only exposed through the definition text. |
+| hepatitis resulting from ingestion | #1 Acute alcoholic liver disease (C0001306)<br>#2 Amoebiasis due to Entamoeba histolytica (C2930799)<br>#3 Hereditary fructose intolerance syndrome (C0016751) | No result returned | The phrase paraphrases the definition rather than the disease label. |
+| inflammation of the appendages | #1 Adnexitis (C0001577)<br>#2 Pelvic Inflammatory Disease (C0242172) | No result returned | The descriptive anatomy phrase retrieves the intended gynecologic concept only when definitions are searchable. |
+| secretion of adrenal hormones | #1 Adrenal Gland Hyperfunction (C0001622)<br>#2 Adrenocorticotropic hormone (ACTH) deficiency (disorder) (C0342388)<br>#3 Adrenal cortical hypofunction (C0405580) | No result returned | The query uses explanatory endocrine wording rather than the preferred disease label. |
+| swelling of internal organs | #1 Acromegaly (C0001206)<br>#2 Familial infantile gigantism (C4751112)<br>#3 Scleroderma (C0011644) | No result returned | The phrase comes straight from the concept definition and does not overlap well enough with names alone. |
+| chronic destructive infection | #1 Pyelonephritis, Xanthogranulomatous (C0034188)<br>#2 X-linked agammaglobulinemia (C0221026)<br>#3 Hyper-IgM Immunodeficiency Syndrome, Type 1 (C0398689) | No result returned | The query is much closer to explanatory definition text than to the specialized concept label. |
+| skin color without elevation | #1 Hypermelanotic macule (C1842774)<br>#2 Familial generalized lentiginosis (C4707357)<br>#3 Contusions (C0009938) | No result returned | The phrase describes the visible finding, and the definition provides the missing lexical bridge. |
+| skin with recent exposure | #1 Polymorphous light eruption (C0031736)<br>#2 Ultraviolet B radiation (C0564461)<br>#3 Exposure to (C0332157) | No result returned | The query resembles a user description of a sun-related rash rather than a canonical dermatology term. |
+| absence of ocular abnormalities | #1 Stickler syndrome, type 3 (C1861481)<br>#2 Bilateral anophthalmos of eyes (C3640021)<br>#3 Unilateral Anophthalmos (C3640022) | No result returned | The query reflects a definitional distinguishing feature rather than a name-based lookup. |
+| disorder involving abnormal inflammation | #1 STING-ASSOCIATED VASCULOPATHY, INFANTILE-ONSET (C4014722)<br>#2 Ectodermal dysplasia, hypohidrotic, with immune deficiency (C1846006)<br>#3 Paroxysmal nocturnal hemoglobinuria (C0024790) | No result returned | The concept is highly specialized, but the descriptive phrase is present in the definition. |
+| abnormal neuronal migration disease | #1 Cortical dysgenesis with pontocerebellar hypoplasia due to TUBB3 mutation (C5191309)<br>#2 Multiple mitochondrial dysfunctions syndrome type 5 (C4539919)<br>#3 Periventricular heterotopia (C5399973) | No result returned | The query is technical but still descriptive, and it depends on definition language rather than synonym coverage. |
+| blood flow after skin | #1 Bleeding time procedure (C0005729)<br>#2 Medicinal Leech Dosage Form (C5203221)<br>#3 Protein C Deficiency (C0398625) | No result returned | The phrase captures the procedure definition more directly than the indexed name. |
+| blood in the subdural | #1 Hematoma, Subdural, Intracranial (C0238156)<br>#2 Hematoma, Subdural, Acute (C0749098)<br>#3 Hematoma, Subdural, Chronic (C0749095) | No result returned | The query is an anatomic description that definitions connect to the formal diagnosis term. |
+| swelling in many areas | #1 C3 glomerulopathy (C4087273)<br>#2 Spider Bites (C0242188)<br>#3 Skin rash (C5779628) | No result returned | The result comes from symptom wording that appears in the definition but not in the preferred name. |
+| blood from the uterus | #1 Specimen Type - Menstrual blood (C1571918)<br>#2 Control of hemorrhage in postpartum uterus (C0262679)<br>#3 Control of antepartum hemorrhage (C0262678) | No result returned | The phrase is descriptive enough to retrieve the concept once the definition text is searchable. |
+| infection associated with vaccination | #1 Disseminated varicella zoster vaccine virus infection (C3830466)<br>#2 BCGosis (C3830467)<br>#3 AIDS, Clinical Trials on Patients with Opportunistic Infections (C1515821) | No result returned | Vaccine-related infection wording appears in definitions and surfaces specific concepts that names alone do not retrieve. |
+| retention of carbon dioxide | #1 Acute Respiratory Acidosis Severity (C4714877)<br>#2 Hypercapnia (C0020440)<br>#3 Acidosis, Respiratory (C0001127) | #1 Hypercapnia (C0020440) | This is a useful ranking example: definitions promote a more specific respiratory acidosis concept instead of only the broader baseline match. |
+
+h2. Takeaway
+
+Definitions add a modest amount of useful recall. They help with a narrow class of short descriptive searches that are semantically correct but do not use the exact preferred UMLS term. In these cases, indexing MRDEF content can recover concepts that are otherwise missed in a name/synonym-only baseline.
+
+h2. Notes
+
+* These examples come from a local ablation study, not from modifying the official UMLS API directly.
+* "No result returned" means the baseline query produced no lexical hit under the same search logic with definition clauses removed.
+* Some definition-enabled rows return fewer than 3 results; in those cases the table shows all available returned results.
+* The 20-query source list used for this table is in the local file "outputs/definition-helpful-queries.top20.csv".

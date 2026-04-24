@@ -13,10 +13,23 @@
     <form id="searchForm">
         <input id="query" placeholder="Enter search term..." required autocomplete="off">
         <button type="submit">Search</button>
-        <label>
-            <input type="checkbox" id="fuzzyToggle">
-            Enable Fuzzy Search
-        </label>
+        <details class="advanced-search">
+            <summary>Advanced</summary>
+            <div class="advanced-controls">
+                <label>
+                    <input type="checkbox" id="fuzzyToggle">
+                    Enable Fuzzy Search
+                </label>
+                <label>
+                    <input type="checkbox" id="definitionsToggle" checked>
+                    Include Definition Matches
+                </label>
+                <label>
+                    <input type="checkbox" id="relatedOnlyToggle">
+                    Show Only Relation Matches
+                </label>
+            </div>
+        </details>
     </form>
     <div id="apiCallContainer">
         <p id="apiCall"><a href="" target="_blank" rel="noopener noreferrer" id="apiCallLink"></a></p>
@@ -46,6 +59,7 @@
                     <th>Preferred Name</th>
                     <th>CUI</th>
                     <th>Semantic Types</th>
+                    <th>Match Type</th>
                 </tr>
             </thead>
             <tbody>
@@ -66,6 +80,10 @@
             <div>
                 <h3>Definitions</h3>
                 <div class="details-defs"></div>
+            </div>
+            <div>
+                <h3>Highly Related Concepts</h3>
+                <div class="details-related"></div>
             </div>
         </div>
     </template>

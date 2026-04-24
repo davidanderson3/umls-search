@@ -10,6 +10,7 @@ const es = new Client({
 });
 
 const ensureSynonymAnalyzer = require('./elastic-index'); // ✅ Import index creation script
+const { buildRelatedConceptsForSource } = require('./related-concepts');
 
 const BATCH_SIZE = 500;
 
@@ -49,6 +50,16 @@ const MRDEF =
   process.env.MRDEF_PATH ||
   (RRF_DIR ? path.join(RRF_DIR, 'MRDEF.RRF') : 'MRDEF.RRF');
 
+const MRREL =
+  getArgValue('--mrrel') ||
+  process.env.MRREL_PATH ||
+  (RRF_DIR ? path.join(RRF_DIR, 'MRREL.RRF') : 'MRREL.RRF');
+
+const MRSAB =
+  getArgValue('--mrsab') ||
+  process.env.MRSAB_PATH ||
+  (RRF_DIR ? path.join(RRF_DIR, 'MRSAB.RRF') : 'MRSAB.RRF');
+
 function assertReadableFile(label, filePath) {
   if (!fs.existsSync(filePath)) {
     const resolvedPath = path.resolve(filePath);
@@ -72,7 +83,7 @@ function validateInputFiles() {
   assertReadableFile('MRDEF', MRDEF);
 }
 
-function loadPreferredCodeNames(path) {
+function loadPreferredConceptNames(path) {
   return new Promise((resolve) => {
     const map = new Map();
     const rl = readline.createInterface({ input: fs.createReadStream(path) });
@@ -83,29 +94,13 @@ function loadPreferredCodeNames(path) {
       const SUPPRESS = cols[16];
       if (LAT !== 'ENG' || SUPPRESS !== 'N') return;
       if (TS !== 'P' || ISPREF !== 'Y') return;
-      const key = `${SAB}|${CODE}`;
-      if (!map.has(key)) map.set(key, STR);
+      if (!map.has(CUI)) map.set(CUI, STR);
     });
 
     rl.on('close', () => {
-      console.log(`✅ Loaded preferred names for ${map.size.toLocaleString()} CODEs`);
+      console.log(`✅ Loaded preferred names for ${map.size.toLocaleString()} CUIs`);
       resolve(map);
     });
-  });
-}
-
-function loadSTY(path) {
-  return new Promise((resolve) => {
-    const map = new Map();
-    const rl = readline.createInterface({ input: fs.createReadStream(path) });
-
-    rl.on('line', (line) => {
-      const [CUI, , , STY] = line.split('|');
-      if (!map.has(CUI)) map.set(CUI, []);
-      map.get(CUI).push(STY);
-    });
-
-    rl.on('close', () => resolve(map));
   });
 }
 
@@ -123,53 +118,187 @@ function loadMRRank(path) {
   });
 }
 
-async function loadDefinitions(defPath, consoPath) {
-  return new Promise((resolve) => {
-    const validAUIs = new Set();
+function loadEnglishSABs(path) {
+  if (!path || !fs.existsSync(path)) {
+    console.warn('Skipping SAB language filter for MRREL: MRSAB.RRF not found');
+    return Promise.resolve(null);
+  }
 
-    // First pass: collect valid English, non-suppressed AUIs from MRCONSO
-    const rlConso = readline.createInterface({ input: fs.createReadStream(consoPath) });
-    rlConso.on('line', (line) => {
+  return new Promise((resolve) => {
+    const englishSABs = new Set();
+    const rl = readline.createInterface({ input: fs.createReadStream(path) });
+
+    rl.on('line', (line) => {
       const cols = line.split('|');
-      const AUI = cols[7];  // 8th field
-      const LAT = cols[1];  // 2nd field
-      const SUPPRESS = cols[16]; // 17th field
-      if (LAT === 'ENG' && SUPPRESS === 'N') {
-        validAUIs.add(AUI);
+      const RSAB = cols[3];
+      const LAT = cols[19];
+      if (LAT === 'ENG' && RSAB) {
+        englishSABs.add(RSAB);
       }
     });
 
-    rlConso.on('close', () => {
-      console.log(`✅ Found ${validAUIs.size.toLocaleString()} English, non-suppressed AUIs`);
-
-      const map = new Map(); // CUI -> Set of definitions
-      const rlDef = readline.createInterface({ input: fs.createReadStream(defPath) });
-
-      rlDef.on('line', (line) => {
-        const cols = line.split('|');
-        const CUI = cols[0];   // 1st field
-        const AUI = cols[1];   // 2nd field
-        const DEF = cols[5];   // 6th field
-
-        if (!validAUIs.has(AUI)) return;
-
-        const cleaned = DEF.trim().replace(/\s+/g, ' ');
-        if (!map.has(CUI)) map.set(CUI, new Set());
-        map.get(CUI).add(cleaned);
-      });
-
-      rlDef.on('close', () => {
-        const finalMap = new Map();
-        for (const [cui, defSet] of map.entries()) {
-          finalMap.set(cui, [...defSet]);
-        }
-        console.log(`✅ Loaded definitions for ${finalMap.size.toLocaleString()} CUIs`);
-        resolve(finalMap);
-      });
+    rl.on('close', () => {
+      console.log(`✅ Loaded ${englishSABs.size.toLocaleString()} English SABs from MRSAB`);
+      resolve(englishSABs);
     });
 
-    rlConso.on('error', (err) => console.error('Error reading MRCONSO:', err));
+    rl.on('error', () => {
+      console.warn('Skipping SAB language filter for MRREL: failed to read MRSAB.RRF');
+      resolve(null);
+    });
   });
+}
+
+function createGroupedValueReader(filePath, parseLine, buildValue) {
+  const rl = readline.createInterface({ input: fs.createReadStream(filePath) });
+  const iterator = rl[Symbol.asyncIterator]();
+  let bufferedEntry = null;
+  let currentGroup = null;
+  let exhausted = false;
+
+  async function nextEntry() {
+    while (true) {
+      if (bufferedEntry) {
+        const entry = bufferedEntry;
+        bufferedEntry = null;
+        return entry;
+      }
+
+      const { value, done } = await iterator.next();
+      if (done) {
+        exhausted = true;
+        return null;
+      }
+
+      const entry = parseLine(value);
+      if (entry) {
+        return entry;
+      }
+    }
+  }
+
+  async function readNextGroup() {
+    const first = await nextEntry();
+    if (!first) return null;
+
+    const rows = [first.value];
+    const key = first.key;
+
+    while (true) {
+      const entry = await nextEntry();
+      if (!entry) {
+        return { key, value: buildValue(key, rows) };
+      }
+      if (entry.key !== key) {
+        bufferedEntry = entry;
+        return { key, value: buildValue(key, rows) };
+      }
+      rows.push(entry.value);
+    }
+  }
+
+  return {
+    async get(targetKey) {
+      if (!targetKey) return null;
+      if (!currentGroup && exhausted) return null;
+      if (!currentGroup) {
+        currentGroup = await readNextGroup();
+      }
+
+      while (currentGroup && currentGroup.key < targetKey) {
+        currentGroup = await readNextGroup();
+      }
+
+      if (currentGroup && currentGroup.key === targetKey) {
+        const value = currentGroup.value;
+        currentGroup = await readNextGroup();
+        return value;
+      }
+
+      return null;
+    },
+    async close() {
+      exhausted = true;
+      rl.close();
+      if (typeof iterator.return === 'function') {
+        try {
+          await iterator.return();
+        } catch (err) {
+          // Ignore close-time iterator errors.
+        }
+      }
+    }
+  };
+}
+
+function createSemanticTypeReader(filePath) {
+  return createGroupedValueReader(
+    filePath,
+    (line) => {
+      const [CUI, , , STY] = line.split('|');
+      if (!CUI || !STY) return null;
+      return { key: CUI, value: STY };
+    },
+    (_cui, rows) => Array.from(new Set(rows))
+  );
+}
+
+function createDefinitionReader(filePath, preferredNameMap) {
+  return createGroupedValueReader(
+    filePath,
+    (line) => {
+      const cols = line.split('|');
+      const CUI = cols[0];
+      const DEF = cols[5];
+      if (!CUI || !preferredNameMap.has(CUI) || !DEF) return null;
+
+      // Attach definitions only to concepts that have an English, non-suppressed term.
+      const cleaned = DEF.trim().replace(/\s+/g, ' ');
+      if (!cleaned) return null;
+      return { key: CUI, value: cleaned };
+    },
+    (_cui, rows) => Array.from(new Set(rows))
+  );
+}
+
+function createRelatedConceptReader(filePath, preferredNameMap, englishSABs) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    console.warn('Skipping MRREL enrichment: file not found');
+    return {
+      async get() {
+        return null;
+      },
+      async close() {}
+    };
+  }
+
+  return createGroupedValueReader(
+    filePath,
+    (line) => {
+      const cols = line.split('|');
+      const sourceCui = cols[0];
+      const targetCui = cols[4];
+      const sab = cols[10];
+      const SUPPRESS = cols[14];
+
+      if (!sourceCui || !targetCui || sourceCui === targetCui) return null;
+      if (SUPPRESS && SUPPRESS !== 'N') return null;
+      if (englishSABs && (!sab || !englishSABs.has(sab))) return null;
+
+      return {
+        key: sourceCui,
+        value: {
+          targetCui,
+          stype1: cols[2],
+          rel: cols[3],
+          stype2: cols[6],
+          rela: cols[7],
+          sab
+        }
+      };
+    },
+    (sourceCui, rows) => buildRelatedConceptsForSource(sourceCui, rows, preferredNameMap)
+  );
 }
 
 async function run() {
@@ -193,14 +322,19 @@ async function run() {
   });
   console.log('⚡ Disabled refresh_interval for bulk load');
 
-  const codePrefMap = await loadPreferredCodeNames(MRCONSO);
-  const styMap = await loadSTY(MRSTY);
+  const preferredNameMap = await loadPreferredConceptNames(MRCONSO);
   const mrRankMap = await loadMRRank(MRRANK);
-  const defMap = await loadDefinitions(MRDEF, MRCONSO);
+  const englishSABs = await loadEnglishSABs(MRSAB);
+  console.log('⚡ Streaming semantic types, definitions, and related concepts by CUI');
+  const styReader = createSemanticTypeReader(MRSTY);
+  const definitionReader = createDefinitionReader(MRDEF, preferredNameMap);
+  const relatedConceptReader = createRelatedConceptReader(MRREL, preferredNameMap, englishSABs);
   const rl = readline.createInterface({ input: fs.createReadStream(MRCONSO) });
 
   let currentCUI = null, doc = null, codesMap = null;
   let count = 0;
+  let definitionCount = 0;
+  let relatedConceptCount = 0;
   const bulkOps = [];
 
   function setPreferredNamesForCodes(codesMap) {
@@ -225,6 +359,11 @@ async function run() {
       doc.preferred_name,
       ...doc.codes.flatMap(code => code.strings || [])
     ].filter(Boolean).join(' ');
+    const relatedConcepts = await relatedConceptReader.get(doc.CUI);
+    if (Array.isArray(relatedConcepts) && relatedConcepts.length > 0) {
+      doc.related_concepts = relatedConcepts;
+      relatedConceptCount++;
+    }
     bulkOps.push({ index: { _index: ES_INDEX, _id: doc.CUI } });
     bulkOps.push(doc);
     count++;
@@ -237,55 +376,67 @@ async function run() {
     codesMap = null;
   };
 
-  for await (const line of rl) {
-    const cols = line.split('|');
-    const [CUI, LAT, TS, , , , ISPREF, , , , , SAB, TTY, CODE, STR] = cols;
-    const SUPPRESS = cols[16];
-    if (LAT !== 'ENG' || SUPPRESS !== 'N') continue;
+  try {
+    for await (const line of rl) {
+      const cols = line.split('|');
+      const [CUI, LAT, TS, , , , ISPREF, , , , , SAB, TTY, CODE, STR] = cols;
+      const SUPPRESS = cols[16];
+      if (LAT !== 'ENG' || SUPPRESS !== 'N') continue;
 
-    if (CUI !== currentCUI) {
-      await flush();
-      currentCUI = CUI;
+      if (CUI !== currentCUI) {
+        await flush();
+        currentCUI = CUI;
 
-      const defs = defMap.get(CUI);
+        const semanticTypes = await styReader.get(CUI);
+        const defs = await definitionReader.get(CUI);
 
-      doc = {
-        CUI,
-        preferred_name: null,
-        STY: styMap.get(CUI) || [],
-        codes: []
-      };
+        doc = {
+          CUI,
+          preferred_name: null,
+          STY: semanticTypes || [],
+          codes: []
+        };
 
-      if (Array.isArray(defs) && defs.length > 0) {
-        doc.definitions = defs;
+        if (Array.isArray(defs) && defs.length > 0) {
+          doc.definitions = defs;
+          definitionCount++;
+        }
+
+        codesMap = new Map();
       }
 
-      codesMap = new Map();
+      if (!doc.preferred_name && TS === 'P' && ISPREF === 'Y') {
+        doc.preferred_name = STR;
+      }
+
+      const key = `${SAB}|${CODE}`;
+      if (!codesMap.has(key)) {
+        codesMap.set(key, {
+          SAB,
+          CODE,
+          preferred_name: null,
+          strings: [],
+          _ranked: []
+        });
+      }
+      const codeObj = codesMap.get(key);
+      codeObj.strings.push(STR);
+      const rank = mrRankMap.get(`${SAB}|${TTY}`) ?? 9999;
+      codeObj._ranked.push({ STR, rank });
     }
 
-
-    if (!doc.preferred_name && TS === 'P' && ISPREF === 'Y') {
-      doc.preferred_name = STR;
-    }
-
-    const key = `${SAB}|${CODE}`;
-    if (!codesMap.has(key)) {
-      codesMap.set(key, {
-        SAB,
-        CODE,
-        preferred_name: null,
-        strings: [],
-        _ranked: []
-      });
-    }
-    const codeObj = codesMap.get(key);
-    codeObj.strings.push(STR);
-    const rank = mrRankMap.get(`${SAB}|${TTY}`) ?? 9999;
-    codeObj._ranked.push({ STR, rank });
+    await flush(true);
+  } finally {
+    rl.close();
+    await Promise.allSettled([
+      styReader.close(),
+      definitionReader.close(),
+      relatedConceptReader.close()
+    ]);
   }
-
-  await flush(true);
   console.log(`✅ Finished indexing ${count.toLocaleString()} CUIs`);
+  console.log(`✅ Streamed definitions for ${definitionCount.toLocaleString()} CUIs`);
+  console.log(`✅ Streamed related concepts for ${relatedConceptCount.toLocaleString()} CUIs`);
 
   await es.indices.putSettings({
     index: ES_INDEX,

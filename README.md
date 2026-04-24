@@ -9,7 +9,7 @@ Make sure you have the following installed and running:
 2. **Elasticsearch 8.x** (tested on **8.19.5**)
 3. **UMLS data files**  
    - Get a UMLS license: [https://uts.nlm.nih.gov/uts/signup-login](https://uts.nlm.nih.gov/uts/signup-login).
-   - Once approved, download UMLS Metathesaurus Full Subset from [https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html](https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html), which includes **MRCONSO.RRF**, **MRSTY.RRF**, and **MRRANK.RRF**
+   - Once approved, download UMLS Metathesaurus Full Subset from [https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html](https://www.nlm.nih.gov/research/umls/licensedcontent/umlsknowledgesources.html), which includes **MRCONSO.RRF**, **MRSTY.RRF**, **MRRANK.RRF**, **MRDEF.RRF**, and **MRREL.RRF**
 
 ---
 
@@ -40,6 +40,7 @@ export MRCONSO_PATH=/path/to/umls/2024AB/META/MRCONSO.RRF
 export MRSTY_PATH=/path/to/umls/2024AB/META/MRSTY.RRF
 export MRRANK_PATH=/path/to/umls/2024AB/META/MRRANK.RRF
 export MRDEF_PATH=/path/to/umls/2024AB/META/MRDEF.RRF
+export MRREL_PATH=/path/to/umls/2024AB/META/MRREL.RRF
 node --max-old-space-size=8192 load.js
 ```
 
@@ -76,7 +77,21 @@ ES_INDEX=my-umls-index node elastic-index.js
 ES_INDEX=my-umls-index node --max-old-space-size=8192 load.js --rrf-dir /path/to/umls/2025AB/META
 ```
 
-load.js takes a few minutes. It's loading MRCONSO.RRF (Concepts, Names, Codes), MRSTY.RRF (Semantic Types), and MRDEF.RRF (Definitions). 
+load.js takes a few minutes. It's loading MRCONSO.RRF (Concepts, Names, Codes), MRSTY.RRF (Semantic Types), MRDEF.RRF (Definitions), and MRREL.RRF (related concept assertions).
+
+MRREL enrichment adds a `related_concepts` annotation per CUI. The score favors:
+
+- trusted source vocabularies (`SAB`)
+- specific asserted relationships (`RELA`) over broad `REL` buckets
+- repeated support from different source families
+- modest extra support for additional `SAB`s and repeated rows within the same family
+
+At query time, relation-tail candidates are seeded from a narrow lexical source set. The backend first
+prefers the strongest exact concept hit (especially `preferred_name` and `CUI` exact matches), then falls
+back to one alternate exact concept if needed, and finally to a small lexical fallback only when exact-seeded
+relation expansion produces no candidates. Relation-tail candidates sourced from exact lexical matches receive
+an additional multiplier (`RELATED_EXACT_SOURCE_MULTIPLIER`, default `1.35`) before they are ranked against
+relation candidates seeded from non-exact lexical hits.
 
 ---
 
@@ -130,7 +145,7 @@ http://localhost:3001/api/search?q=renal%20tubular%20acidosis&page=1&size=100&fu
 
 ### API Endpoint
 
-**GET** `/api/search?q=search_term&page=page_number&size=page_size&fuzzy=true|false`
+**GET** `/api/search?q=search_term&page=page_number&size=page_size&fuzzy=true|false&include_definitions=true|false&related_only=true|false`
 
 #### Parameters
 
@@ -140,11 +155,13 @@ http://localhost:3001/api/search?q=renal%20tubular%20acidosis&page=1&size=100&fu
 | `page`    | int    | No       | One-based page index (default = 1) |
 | `size`    | int    | No       | Page size (default = 100) |
 | `fuzzy`   | bool   | No       | If `true`, enables fuzzy matching (default = `false`) |
+| `include_definitions` | bool | No | If `false`, removes definition clauses from lexical retrieval so only name/synonym matches are used (default = `true`) |
+| `related_only` | bool | No    | If `true`, returns only relation-derived hits from the relation tail (default = `false`) |
 
 #### Example Request
 
 ```bash
-curl "http://localhost:3000/api/search?q=diabetes&page=1&size=100&fuzzy=true"
+curl "http://localhost:3000/api/search?q=diabetes&page=1&size=100&fuzzy=true&include_definitions=false"
 ```
 
 If needed, replace `3000` with the port you started the server on.
@@ -179,17 +196,23 @@ The backend performs a full-text search using Elasticsearch across the following
 
 The query combines:
 
-- `match_phrase` on `atom_text` (high boost)
-- `match` with `operator: "and"` on `atom_text`
+- `match_phrase` on `atom_text.no_synonyms` (highest boost)
+- `match` with `operator: "and"` on `atom_text.no_synonyms`
+- `match_phrase` on synonym-expanded `atom_text`
+- `match` with `operator: "and"` on synonym-expanded `atom_text`
 - *(Optional)* `match` with `fuzziness` on `atom_text` — only if `fuzzy=true`
-- `match` on `definitions` (lower boost) 
+- `match_phrase` and `match` on `definitions` (lower boost) 
 
 The backend then:
 
 - Filters out any CUIs already returned by exact match
 - Assigns `_customScore = _score` from Elasticsearch
-- Tags each hit with `"matchType": "fuzzy"`
+- Tags non-exact lexical hits with `"matchType": "full-text"` unless they matched the fuzzy clause, in which case they are labeled `"matchType": "fuzzy"`
+- Optionally appends a small number of relation-derived hits from `related_concepts`
+- Seeds relation-derived candidates from a narrow set of high-confidence lexical hits, preferring the strongest exact concept hit before broader fallback hits
+- Forces relation-derived hits to the tail of the ranking with a negative custom score
 - Combines results, deduplicates by CUI, and sorts:
   1. Exact matches (`_customScore = Infinity`) first
-  2. Fuzzy matches, descending by `_customScore`
-  3. Tie-breaker: alphabetical by CUI
+  2. Full-text and fuzzy matches, descending by `_customScore`
+  3. Relation-derived matches at the end
+  4. Tie-breaker: alphabetical by CUI

@@ -19,10 +19,12 @@ export function initState() {
 export async function doSearch(pageIndex = 0) {
     const q = prepareForSearch(getQueryInput());
     const fuzzy = document.getElementById('fuzzyToggle')?.checked || false;
+    const includeDefinitions = document.getElementById('definitionsToggle')?.checked ?? true;
+    const relatedOnly = document.getElementById('relatedOnlyToggle')?.checked || false;
     const page = pageIndex + 1;
     const size = CONFIG.pageSize;
 
-    const relativeUrl = `${CONFIG.backendUrl}?q=${encodeURIComponent(q)}&page=${page}&size=${size}&fuzzy=${fuzzy}`;
+    const relativeUrl = `${CONFIG.backendUrl}?q=${encodeURIComponent(q)}&page=${page}&size=${size}&fuzzy=${fuzzy}&include_definitions=${includeDefinitions}&related_only=${relatedOnly}`;
     const fullUrl = `${window.location.origin}${relativeUrl}`;
     const start = performance.now();
 
@@ -55,7 +57,10 @@ export async function doSearch(pageIndex = 0) {
             STY: Array.isArray(hit.STY) ? hit.STY : [],
             codes: Array.isArray(hit.codes) ? hit.codes : [],
             definitions: Array.isArray(hit.definitions) ? hit.definitions : [],
+            related_concepts: Array.isArray(hit.related_concepts) ? hit.related_concepts : [],
             matchType: hit.matchType || null,
+            relatedTo: hit.relatedTo || null,
+            relatedBy: Array.isArray(hit.relatedBy) ? hit.relatedBy : [],
             _customScore: hit._customScore || 0
         }));
     window.totalPages = Math.ceil(data.total / CONFIG.pageSize);
@@ -64,5 +69,3 @@ export async function doSearch(pageIndex = 0) {
 
     renderPage();
 }
-
-

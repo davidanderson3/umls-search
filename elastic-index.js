@@ -120,6 +120,23 @@ async function ensureSynonymAnalyzer() {
                     }
                 }
             }
+        },
+        related_concepts: {
+            type: 'nested',
+            properties: {
+                CUI: { type: 'keyword' },
+                preferred_name: {
+                    type: 'text',
+                    fields: {
+                        keyword: { type: 'keyword' }
+                    }
+                },
+                score: { type: 'float' },
+                evidence_count: { type: 'integer' },
+                vocabulary_count: { type: 'integer' },
+                vocabularies: { type: 'keyword' },
+                relations: { type: 'keyword' }
+            }
         }
     };
 

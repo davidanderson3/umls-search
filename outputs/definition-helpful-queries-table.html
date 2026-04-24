@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Definition-Helpful Queries</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      line-height: 1.4;
+      color: #222;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #f3f3f3;
+    }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>
+        <th>Query</th>
+        <th>Top 3 With Definitions</th>
+        <th>Top 3 Without Definitions</th>
+        <th>Why Definitions Help</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>absence of hydrochloric acid</td>
+        <td>#1 Achlorhydria (C0001075)</td>
+        <td>No result returned</td>
+        <td>The query is a plain-language description that only becomes retrievable when the definition text is searchable.</td>
+      </tr>
+      <tr>
+        <td>accumulation of lactic acid</td>
+        <td>#1 Acidosis, Lactic (C0001125)<br>#2 MITOCHONDRIAL DNA DEPLETION SYNDROME 9 (ENCEPHALOMYOPATHIC TYPE WITH METHYLMALONIC ACIDURIA) (C3151476)<br>#3 Pyruvate Carboxylase Deficiency Disease (C0034341)</td>
+        <td>No result returned</td>
+        <td>The returned concept depends on wording found in the definition rather than the formal label.</td>
+      </tr>
+      <tr>
+        <td>absence of blood circulation</td>
+        <td>#1 Ischemia (C0022116)<br>#2 Chronic absent circulating IgE (C5398006)<br>#3 Drug-induced neutropenia (C0272178)</td>
+        <td>No result returned</td>
+        <td>The user phrase describes the physiology directly instead of naming the canonical term.</td>
+      </tr>
+      <tr>
+        <td>blood levels of dapsone</td>
+        <td>#1 Acedapsone (C0000949)</td>
+        <td>No result returned</td>
+        <td>The description of the drug’s long-term effect is only exposed through the definition text.</td>
+      </tr>
+      <tr>
+        <td>hepatitis resulting from ingestion</td>
+        <td>#1 Acute alcoholic liver disease (C0001306)<br>#2 Amoebiasis due to Entamoeba histolytica (C2930799)<br>#3 Hereditary fructose intolerance syndrome (C0016751)</td>
+        <td>No result returned</td>
+        <td>The phrase paraphrases the definition rather than the disease label.</td>
+      </tr>
+      <tr>
+        <td>inflammation of the appendages</td>
+        <td>#1 Adnexitis (C0001577)<br>#2 Pelvic Inflammatory Disease (C0242172)</td>
+        <td>No result returned</td>
+        <td>The descriptive anatomy phrase retrieves the intended gynecologic concept only when definitions are searchable.</td>
+      </tr>
+      <tr>
+        <td>secretion of adrenal hormones</td>
+        <td>#1 Adrenal Gland Hyperfunction (C0001622)<br>#2 Adrenocorticotropic hormone (ACTH) deficiency (disorder) (C0342388)<br>#3 Adrenal cortical hypofunction (C0405580)</td>
+        <td>No result returned</td>
+        <td>The query uses explanatory endocrine wording rather than the preferred disease label.</td>
+      </tr>
+      <tr>
+        <td>swelling of internal organs</td>
+        <td>#1 Acromegaly (C0001206)<br>#2 Familial infantile gigantism (C4751112)<br>#3 Scleroderma (C0011644)</td>
+        <td>No result returned</td>
+        <td>The phrase comes straight from the concept definition and does not overlap well enough with names alone.</td>
+      </tr>
+      <tr>
+        <td>chronic destructive infection</td>
+        <td>#1 Pyelonephritis, Xanthogranulomatous (C0034188)<br>#2 X-linked agammaglobulinemia (C0221026)<br>#3 Hyper-IgM Immunodeficiency Syndrome, Type 1 (C0398689)</td>
+        <td>No result returned</td>
+        <td>The query is much closer to explanatory definition text than to the specialized concept label.</td>
+      </tr>
+      <tr>
+        <td>skin color without elevation</td>
+        <td>#1 Hypermelanotic macule (C1842774)<br>#2 Familial generalized lentiginosis (C4707357)<br>#3 Contusions (C0009938)</td>
+        <td>No result returned</td>
+        <td>The phrase describes the visible finding, and the definition provides the missing lexical bridge.</td>
+      </tr>
+      <tr>
+        <td>skin with recent exposure</td>
+        <td>#1 Polymorphous light eruption (C0031736)<br>#2 Ultraviolet B radiation (C0564461)<br>#3 Exposure to (C0332157)</td>
+        <td>No result returned</td>
+        <td>The query resembles a user description of a sun-related rash rather than a canonical dermatology term.</td>
+      </tr>
+      <tr>
+        <td>absence of ocular abnormalities</td>
+        <td>#1 Stickler syndrome, type 3 (C1861481)<br>#2 Bilateral anophthalmos of eyes (C3640021)<br>#3 Unilateral Anophthalmos (C3640022)</td>
+        <td>No result returned</td>
+        <td>The query reflects a definitional distinguishing feature rather than a name-based lookup.</td>
+      </tr>
+      <tr>
+        <td>disorder involving abnormal inflammation</td>
+        <td>#1 STING-ASSOCIATED VASCULOPATHY, INFANTILE-ONSET (C4014722)<br>#2 Ectodermal dysplasia, hypohidrotic, with immune deficiency (C1846006)<br>#3 Paroxysmal nocturnal hemoglobinuria (C0024790)</td>
+        <td>No result returned</td>
+        <td>The concept is highly specialized, but the descriptive phrase is present in the definition.</td>
+      </tr>
+      <tr>
+        <td>abnormal neuronal migration disease</td>
+        <td>#1 Cortical dysgenesis with pontocerebellar hypoplasia due to TUBB3 mutation (C5191309)<br>#2 Multiple mitochondrial dysfunctions syndrome type 5 (C4539919)<br>#3 Periventricular heterotopia (C5399973)</td>
+        <td>No result returned</td>
+        <td>The query is technical but still descriptive, and it depends on definition language rather than synonym coverage.</td>
+      </tr>
+      <tr>
+        <td>blood flow after skin</td>
+        <td>#1 Bleeding time procedure (C0005729)<br>#2 Medicinal Leech Dosage Form (C5203221)<br>#3 Protein C Deficiency (C0398625)</td>
+        <td>No result returned</td>
+        <td>The phrase captures the procedure definition more directly than the indexed name.</td>
+      </tr>
+      <tr>
+        <td>blood in the subdural</td>
+        <td>#1 Hematoma, Subdural, Intracranial (C0238156)<br>#2 Hematoma, Subdural, Acute (C0749098)<br>#3 Hematoma, Subdural, Chronic (C0749095)</td>
+        <td>No result returned</td>
+        <td>The query is an anatomic description that definitions connect to the formal diagnosis term.</td>
+      </tr>
+      <tr>
+        <td>swelling in many areas</td>
+        <td>#1 C3 glomerulopathy (C4087273)<br>#2 Spider Bites (C0242188)<br>#3 Skin rash (C5779628)</td>
+        <td>No result returned</td>
+        <td>The result comes from symptom wording that appears in the definition but not in the preferred name.</td>
+      </tr>
+      <tr>
+        <td>blood from the uterus</td>
+        <td>#1 Specimen Type - Menstrual blood (C1571918)<br>#2 Control of hemorrhage in postpartum uterus (C0262679)<br>#3 Control of antepartum hemorrhage (C0262678)</td>
+        <td>No result returned</td>
+        <td>The phrase is descriptive enough to retrieve the concept once the definition text is searchable.</td>
+      </tr>
+      <tr>
+        <td>infection associated with vaccination</td>
+        <td>#1 Disseminated varicella zoster vaccine virus infection (C3830466)<br>#2 BCGosis (C3830467)<br>#3 AIDS, Clinical Trials on Patients with Opportunistic Infections (C1515821)</td>
+        <td>No result returned</td>
+        <td>Vaccine-related infection wording appears in definitions and surfaces specific concepts that names alone do not retrieve.</td>
+      </tr>
+      <tr>
+        <td>retention of carbon dioxide</td>
+        <td>#1 Acute Respiratory Acidosis Severity (C4714877)<br>#2 Hypercapnia (C0020440)<br>#3 Acidosis, Respiratory (C0001127)</td>
+        <td>#1 Hypercapnia (C0020440)</td>
+        <td>This is a useful ranking example: definitions promote a more specific respiratory acidosis concept instead of only the broader baseline match.</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>

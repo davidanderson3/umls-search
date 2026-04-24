@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const getExactMatches = require('../elastic/exact-match');
 const runFullSearch = require('../elastic/full-search');
+const getRelatedMatches = require('../elastic/related-match');
 const { ES_INDEX } = require('../../elastic-config');
 
 router.get('/search', async (req, res) => {
@@ -15,10 +16,14 @@ router.get('/search', async (req, res) => {
     const page = Math.max((parseInt(req.query.page, 10) || 1) - 1, 0);
     const from = page * size;
     const fuzzy = req.query.fuzzy === 'true';
+    const relatedOnly = req.query.related_only === 'true';
+    const includeDefinitions = req.query.include_definitions !== 'false';
 
     try {
         console.log(`\n🔍 Query: "${query}" (fuzzy: ${fuzzy})`);
         console.log(`📄 Page: ${page + 1}, From: ${from}, Size: ${size}`);
+        console.log(`🔗 Related Only: ${relatedOnly}`);
+        console.log(`📚 Include Definitions: ${includeDefinitions}`);
 
         // Step 1: Exact matches
         const exactMatches = await getExactMatches(query.toLowerCase());
@@ -29,11 +34,17 @@ router.get('/search', async (req, res) => {
         const exactCUIs = new Set(exactMatches.map(doc => doc._source?.CUI));
 
         // Step 2: Fuzzy or full-text search
-        const { scoredHits: fuzzyHitsRaw } = await runFullSearch({ query, exactCUIs, fuzzy });
-        fuzzyHitsRaw.forEach(hit => hit.matchType = 'fuzzy');
+        const { scoredHits: fuzzyHitsRaw } = await runFullSearch({ query, exactCUIs, fuzzy, includeDefinitions });
 
-        // Step 3: Combine and deduplicate
-        const combinedHits = [...exactMatches, ...fuzzyHitsRaw];
+        // Step 3: Append a small relation-based tail. These should never outrank lexical hits.
+        const seenCUIs = new Set([
+            ...exactMatches.map(doc => doc._source?.CUI).filter(Boolean),
+            ...fuzzyHitsRaw.map(doc => doc._source?.CUI).filter(Boolean)
+        ]);
+        const relatedHitsRaw = await getRelatedMatches([...exactMatches, ...fuzzyHitsRaw], seenCUIs);
+
+        // Step 4: Combine and deduplicate
+        const combinedHits = [...exactMatches, ...fuzzyHitsRaw, ...relatedHitsRaw];
 
         const dedupedMap = new Map();
         for (const hit of combinedHits) {
@@ -67,13 +78,18 @@ router.get('/search', async (req, res) => {
             return valid;
         });
 
-        console.log(`✅ Valid Hits Count: ${validHits.length}`);
+        const filteredHits = relatedOnly
+            ? validHits.filter(hit => hit.matchType === 'related')
+            : validHits;
 
-        const finalHits = validHits.slice(from, from + size);
+        console.log(`✅ Valid Hits Count: ${validHits.length}`);
+        console.log(`✅ Filtered Hits Count: ${filteredHits.length}`);
+
+        const finalHits = filteredHits.slice(from, from + size);
         console.log(`✅ Final Hits Count for Page ${page + 1}: ${finalHits.length}`);
 
         res.json({
-            total: validHits.length,
+            total: filteredHits.length,
             results: finalHits.map(hit => {
                 const s = hit._source || {};
                 return {
@@ -82,7 +98,10 @@ router.get('/search', async (req, res) => {
                     STY: Array.isArray(s.STY) ? s.STY : [],
                     codes: Array.isArray(s.codes) ? s.codes : [],
                     definitions: Array.isArray(s.definitions) ? s.definitions : [],
+                    related_concepts: Array.isArray(s.related_concepts) ? s.related_concepts : [],
                     matchType: hit.matchType || null,
+                    relatedTo: hit._relatedTo || null,
+                    relatedBy: Array.isArray(hit._relatedBy) ? hit._relatedBy : [],
                     _customScore: hit._customScore || 0
                 };
             })
